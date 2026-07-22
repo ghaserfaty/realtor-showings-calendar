@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RegistrationStatus {
+  CONFIRMED
+  CANCELLED
+}
+
+enum CalendarSyncStatus {
+  PENDING
+  SYNCED
+  ERROR
+}
+
+model Realtor {
+  id                     String       @id @default(cuid())
+  email                  String       @unique
+  displayName            String?
+  calendarOwnerReference String
+  invitations            Invitation[]
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+}
+
+model Invitation {
+  id                   String              @id @default(cuid())
+  tokenHash            String              @unique
+  invitedEmail         String
+  invitedName          String?
+  invitedPhone         String?
+  realtorId            String
+  realtor              Realtor             @relation(fields: [realtorId], references: [id], onDelete: Restrict)
+  expiresAt            DateTime
+  revokedAt            DateTime?
+  maxSubmissions       Int?
+  verificationRequired Boolean             @default(false)
+  createdAt            DateTime            @default(now())
+  lastAccessedAt       DateTime?
+  registrations        Registration[]
+  verificationCodes    VerificationCode[]
+  sessions             InvitationSession[]
+
+  @@index([expiresAt])
+  @@index([realtorId])
+}
+
+model InvitationSession {
+  id              String     @id @default(cuid())
+  invitationId    String
+  invitation      Invitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  tokenHash       String     @unique
+  verifiedEmailAt DateTime?
+  expiresAt       DateTime
+  createdAt       DateTime   @default(now())
+  lastSeenAt      DateTime   @default(now())
+
+  @@index([invitationId, expiresAt])
+}
+
+model VerificationCode {
+  id           String     @id @default(cuid())
+  invitationId String
+  invitation   Invitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  codeHash     String
+  expiresAt    DateTime
+  usedAt       DateTime?
+  attempts     Int        @default(0)
+  maxAttempts  Int        @default(5)
+  requestedIp  String?
+  createdAt    DateTime   @default(now())
+
+  @@index([invitationId, createdAt])
+}
+
+model Registration {
+  id                 String              @id @default(cuid())
+  invitationId       String
+  invitation         Invitation          @relation(fields: [invitationId], references: [id], onDelete: Restrict)
+  calendarEventId    String
+  fullName           String
+  email              String
+  phone              String
+  notes              String?
+  status             RegistrationStatus  @default(CONFIRMED)
+  registeredAt       DateTime            @default(now())
+  cancelledAt        DateTime?
+  calendarSyncStatus CalendarSyncStatus  @default(PENDING)
+  calendarSyncError  String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@unique([invitationId, calendarEventId])
+  @@index([calendarEventId, status])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  action       String
+  invitationId String?
+  actorType    String
+  actorId      String?
+  metadata     Json?
+  ipHash       String?
+  createdAt    DateTime @default(now())
+
+  @@index([invitationId, createdAt])
+  @@index([action, createdAt])
+}

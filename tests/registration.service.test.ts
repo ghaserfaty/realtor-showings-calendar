@@ -190,7 +190,6 @@ function invitation(id: string): Invitation {
     expiresAt: new Date("2026-08-20T12:00:00.000Z"),
     revokedAt: null,
     maxSubmissions: null,
-    verificationRequired: false,
     createdAt: now,
     lastAccessedAt: null,
   };

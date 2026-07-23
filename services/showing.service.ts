@@ -213,7 +213,7 @@ export function sanitizeShowing(
 }
 
 type CountsRepository = {
-  countActiveForEvent(eventId: string): Promise<number>;
+  countActiveForEvent(realtorId: string, eventId: string): Promise<number>;
   listForInvitation(
     invitationId: string,
   ): Promise<Array<{ calendarEventId: string; status: string }>>;
@@ -221,6 +221,7 @@ type CountsRepository = {
 
 export class ShowingService {
   constructor(
+    private readonly realtorId: string,
     private readonly calendar: CalendarProvider,
     private readonly counts: CountsRepository,
     private readonly now: () => Date = () => new Date(),
@@ -246,7 +247,10 @@ export class ShowingService {
     const publicShowings = await Promise.all(
       candidates.map(async (showing): Promise<PublicShowingDto | null> => {
         const count = showing.capacity
-          ? await this.counts.countActiveForEvent(showing.event.id)
+          ? await this.counts.countActiveForEvent(
+              this.realtorId,
+              showing.event.id,
+            )
           : undefined;
         if (
           showing.capacity &&
@@ -305,7 +309,10 @@ export class ShowingService {
       );
     }
     if (showing.capacity) {
-      const count = await this.counts.countActiveForEvent(eventId);
+      const count = await this.counts.countActiveForEvent(
+        this.realtorId,
+        eventId,
+      );
       if (count >= showing.capacity) {
         throw new AppError(
           "SHOWING_FULL",
@@ -318,6 +325,12 @@ export class ShowingService {
   }
 }
 
-export function getShowingService(): ShowingService {
-  return new ShowingService(getCalendarProvider(), registrationRepository);
+export async function getShowingService(
+  realtorId: string,
+): Promise<ShowingService> {
+  return new ShowingService(
+    realtorId,
+    await getCalendarProvider(realtorId),
+    registrationRepository,
+  );
 }

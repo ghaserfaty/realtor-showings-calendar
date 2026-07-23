@@ -1,23 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { missingGoogleOAuthVariables } from "@/services/calendar/google-calendar.provider";
+import { missingGoogleCredentialFields } from "@/services/calendar/google-calendar.provider";
 
 describe("Google Calendar provider configuration", () => {
   it("reports the exact missing OAuth variables", () => {
     expect(
-      missingGoogleOAuthVariables({
-        GOOGLE_CLIENT_ID: "client-id",
-        GOOGLE_CLIENT_SECRET: "client-secret",
-        GOOGLE_REFRESH_TOKEN: "",
+      missingGoogleCredentialFields({
+        clientId: "client-id",
+        clientSecret: "client-secret",
+        refreshToken: "",
+        calendarId: "calendar-id",
       }),
-    ).toEqual(["GOOGLE_REFRESH_TOKEN"]);
+    ).toEqual(["refreshToken"]);
   });
 
   it("accepts a complete OAuth configuration", () => {
     expect(
-      missingGoogleOAuthVariables({
-        GOOGLE_CLIENT_ID: "client-id",
-        GOOGLE_CLIENT_SECRET: "client-secret",
-        GOOGLE_REFRESH_TOKEN: "refresh-token",
+      missingGoogleCredentialFields({
+        clientId: "client-id",
+        clientSecret: "client-secret",
+        refreshToken: "refresh-token",
+        calendarId: "calendar-id",
       }),
     ).toEqual([]);
   });

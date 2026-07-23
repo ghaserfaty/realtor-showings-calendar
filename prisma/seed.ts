@@ -12,14 +12,24 @@ function hash(value: string): string {
 }
 
 async function main() {
+  const realtorApiKey = `rlt_${token()}`;
   const realtor = await prisma.realtor.upsert({
     where: { email: "realtor@example.test" },
-    update: {},
+    update: {
+      displayName: "Alex Morgan",
+      adminApiKeyHash: hash(realtorApiKey),
+      calendarProvider: "MOCK",
+    },
     create: {
       email: "realtor@example.test",
       displayName: "Alex Morgan",
-      calendarOwnerReference: process.env.GOOGLE_CALENDAR_ID ?? "primary",
+      adminApiKeyHash: hash(realtorApiKey),
+      calendarProvider: "MOCK",
     },
+  });
+
+  await prisma.googleCalendarConnection.deleteMany({
+    where: { realtorId: realtor.id },
   });
 
   await prisma.registration.deleteMany({
@@ -40,7 +50,6 @@ async function main() {
       invitedPhone: "+1 555 123 4567",
       realtorId: realtor.id,
       expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-      verificationRequired: false,
     },
   });
 
@@ -70,6 +79,7 @@ async function main() {
   console.info(
     "Local seed complete. Plain tokens are printed only by this development seed.",
   );
+  console.info(`Realtor API key: ${realtorApiKey}`);
   console.info(`Valid invitation: ${appUrl}/invite/${validToken}`);
   console.info(`Expired invitation: ${appUrl}/invite/${expiredToken}`);
   console.info(

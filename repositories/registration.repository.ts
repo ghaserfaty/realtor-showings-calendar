@@ -33,16 +33,24 @@ export const registrationRepository = {
       select: registrationSelect,
     });
   },
-  listActiveForEvent(calendarEventId: string) {
+  listActiveForEvent(realtorId: string, calendarEventId: string) {
     return prisma.registration.findMany({
-      where: { calendarEventId, status: RegistrationStatus.CONFIRMED },
+      where: {
+        calendarEventId,
+        status: RegistrationStatus.CONFIRMED,
+        invitation: { realtorId },
+      },
       orderBy: [{ registeredAt: "asc" }, { id: "asc" }],
       select: registrationSelect,
     });
   },
-  countActiveForEvent(calendarEventId: string) {
+  countActiveForEvent(realtorId: string, calendarEventId: string) {
     return prisma.registration.count({
-      where: { calendarEventId, status: RegistrationStatus.CONFIRMED },
+      where: {
+        calendarEventId,
+        status: RegistrationStatus.CONFIRMED,
+        invitation: { realtorId },
+      },
     });
   },
   find(invitationId: string, calendarEventId: string) {
@@ -54,12 +62,17 @@ export const registrationRepository = {
     });
   },
   markSync(
+    realtorId: string,
     calendarEventId: string,
     status: CalendarSyncStatus,
     calendarSyncError: string | null = null,
   ) {
     return prisma.registration.updateMany({
-      where: { calendarEventId, status: RegistrationStatus.CONFIRMED },
+      where: {
+        calendarEventId,
+        status: RegistrationStatus.CONFIRMED,
+        invitation: { realtorId },
+      },
       data: { calendarSyncStatus: status, calendarSyncError },
     });
   },

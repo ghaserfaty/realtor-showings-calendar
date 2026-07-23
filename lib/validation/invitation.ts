@@ -16,12 +16,10 @@ export const createInvitationSchema = z.object({
     .transform((value) => value.toLowerCase()),
   invitedName: z.string().trim().min(1).max(120).optional(),
   invitedPhone: phone.optional(),
-  realtorId: z.string().cuid().optional(),
   expiresAt: z.coerce
     .date()
     .refine((date) => date > new Date(), "Expiration must be in the future"),
   maxSubmissions: z.number().int().positive().max(100).optional(),
-  verificationRequired: z.boolean().optional(),
   sendEmail: z.boolean().default(false),
 });
 
@@ -62,12 +60,5 @@ export const registrationSchema = z
       }
     }
   });
-
-export const verificationCodeSchema = z.object({
-  code: z
-    .string()
-    .trim()
-    .regex(/^\d{6}$/, "Enter the six-digit code"),
-});
 
 export type RegistrationInput = z.infer<typeof registrationSchema>;

@@ -3,13 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { hmacSha256 } from "@/lib/security/crypto";
 
 export type AuditAction =
+  | "REALTOR_CREATED"
+  | "CALENDAR_CONNECTION_UPDATED"
   | "INVITATION_CREATED"
   | "INVITATION_ACCESSED"
   | "INVITATION_REVOKED"
   | "INVITATION_RESENT"
-  | "VERIFICATION_REQUESTED"
-  | "VERIFICATION_SUCCEEDED"
-  | "VERIFICATION_FAILED"
   | "REGISTRATION_CREATED"
   | "REGISTRATION_REUSED"
   | "REGISTRATION_CANCELLED";

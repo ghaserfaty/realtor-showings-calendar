@@ -58,17 +58,6 @@ export function getEmailProvider(): EmailProvider {
     : new ConsoleEmailProvider();
 }
 
-export async function sendVerificationEmail(
-  email: string,
-  code: string,
-): Promise<void> {
-  await getEmailProvider().send({
-    to: email,
-    subject: "Your property showing verification code",
-    text: `Your verification code is ${code}. It expires in 10 minutes and can be used once.`,
-  });
-}
-
 export async function sendInvitationEmail(
   email: string,
   invitationUrl: string,

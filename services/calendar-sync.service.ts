@@ -52,11 +52,16 @@ export function rebuildManagedDescription(
 }
 
 export class CalendarSyncService {
-  constructor(private readonly calendar: CalendarProvider) {}
+  constructor(
+    private readonly realtorId: string,
+    private readonly calendar: CalendarProvider,
+  ) {}
 
   async syncEvent(eventId: string): Promise<void> {
-    const registrations =
-      await registrationRepository.listActiveForEvent(eventId);
+    const registrations = await registrationRepository.listActiveForEvent(
+      this.realtorId,
+      eventId,
+    );
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
@@ -75,7 +80,11 @@ export class CalendarSyncService {
           },
           expectedEtag: event.etag ?? undefined,
         });
-        await registrationRepository.markSync(eventId, "SYNCED");
+        await registrationRepository.markSync(
+          this.realtorId,
+          eventId,
+          "SYNCED",
+        );
         return;
       } catch (error: unknown) {
         lastError = error;
@@ -88,11 +97,21 @@ export class CalendarSyncService {
       lastError instanceof Error
         ? lastError.message.slice(0, 500)
         : "Unknown calendar error";
-    await registrationRepository.markSync(eventId, "ERROR", safeError);
+    await registrationRepository.markSync(
+      this.realtorId,
+      eventId,
+      "ERROR",
+      safeError,
+    );
     throw lastError;
   }
 }
 
-export function getCalendarSyncService(): CalendarSyncService {
-  return new CalendarSyncService(getCalendarProvider());
+export async function getCalendarSyncService(
+  realtorId: string,
+): Promise<CalendarSyncService> {
+  return new CalendarSyncService(
+    realtorId,
+    await getCalendarProvider(realtorId),
+  );
 }

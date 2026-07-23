@@ -1,11 +1,8 @@
 export type PublicInvitationDto = {
   invitedName?: string;
-  invitedEmail?: string;
+  invitedEmail: string;
   invitedPhone?: string;
-  maskedEmail: string;
   expiresAt: string;
-  verificationRequired: boolean;
-  verified: boolean;
 };
 
 export type PublicShowingDto = {

@@ -73,8 +73,6 @@ export function InviteExperience({ token }: { token: string }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [codeSent, setCodeSent] = useState(false);
-  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [success, setSuccess] = useState("");
   const [fullName, setFullName] = useState("");
@@ -111,9 +109,9 @@ export function InviteExperience({ token }: { token: string }) {
     const data = await api<PublicInvitationDto>(basePath);
     setInvitation(data);
     setFullName((current) => current || data.invitedName || "");
-    setEmail((current) => current || data.invitedEmail || "");
+    setEmail((current) => current || data.invitedEmail);
     setPhone((current) => current || data.invitedPhone || "");
-    if (data.verified) await loadShowings();
+    await loadShowings();
   }, [basePath, loadShowings]);
 
   useEffect(() => {
@@ -131,7 +129,7 @@ export function InviteExperience({ token }: { token: string }) {
   }, [loadInvitation]);
 
   useEffect(() => {
-    if (!invitation?.verified) return;
+    if (!invitation) return;
     const refresh = () => void loadShowings().catch(() => undefined);
     const interval = window.setInterval(refresh, 60_000);
     window.addEventListener("focus", refresh);
@@ -139,7 +137,7 @@ export function InviteExperience({ token }: { token: string }) {
       window.clearInterval(interval);
       window.removeEventListener("focus", refresh);
     };
-  }, [invitation?.verified, loadShowings]);
+  }, [invitation, loadShowings]);
 
   const selectedShowings = useMemo(
     () => showings.filter((showing) => selected.has(showing.eventId)),
@@ -154,42 +152,6 @@ export function InviteExperience({ token }: { token: string }) {
       else next.add(eventId);
       return next;
     });
-  }
-
-  async function requestCode(): Promise<void> {
-    setBusy(true);
-    setError("");
-    try {
-      await api(`${basePath}/request-code`, { method: "POST", body: "{}" });
-      setCodeSent(true);
-    } catch (reason: unknown) {
-      setError(
-        reason instanceof Error ? reason.message : "We could not send a code.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function verify(event: FormEvent): Promise<void> {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      await api(`${basePath}/verify-code`, {
-        method: "POST",
-        body: JSON.stringify({ code }),
-      });
-      await loadInvitation();
-    } catch (reason: unknown) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : "The code could not be verified.",
-      );
-    } finally {
-      setBusy(false);
-    }
   }
 
   async function submit(event: FormEvent): Promise<void> {
@@ -289,72 +251,6 @@ export function InviteExperience({ token }: { token: string }) {
           <p>
             {error ||
               "It may have expired or been revoked. Ask your realtor for a new link."}
-          </p>
-        </section>
-      </main>
-    );
-  }
-
-  if (!invitation.verified) {
-    return (
-      <main className="centered-page verification-page">
-        <section className="verification-card">
-          <div className="brand-row">
-            <div className="brand-mark" aria-hidden="true">
-              M
-            </div>
-            <span>Private showing invitation</span>
-          </div>
-          <p className="eyebrow">Confirm it’s you</p>
-          <h1>Let’s verify your email.</h1>
-          <p>
-            We’ll send a six-digit code to{" "}
-            <strong>{invitation.maskedEmail}</strong>. The code expires in 10
-            minutes.
-          </p>
-          {error && <div className="notice error-notice">{error}</div>}
-          {!codeSent ? (
-            <button
-              className="primary-button full-button"
-              onClick={requestCode}
-              disabled={busy}
-            >
-              {busy ? "Sending…" : "Send verification code"}
-            </button>
-          ) : (
-            <form onSubmit={verify} className="code-form">
-              <label htmlFor="verification-code">Six-digit code</label>
-              <input
-                id="verification-code"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                pattern="[0-9]{6}"
-                maxLength={6}
-                value={code}
-                onChange={(event) =>
-                  setCode(event.target.value.replace(/\D/g, ""))
-                }
-                placeholder="000000"
-                required
-              />
-              <button
-                className="primary-button full-button"
-                disabled={busy || code.length !== 6}
-              >
-                {busy ? "Checking…" : "Verify and view showings"}
-              </button>
-              <button
-                type="button"
-                className="text-button"
-                onClick={requestCode}
-                disabled={busy}
-              >
-                Send a new code
-              </button>
-            </form>
-          )}
-          <p className="security-note">
-            For your privacy, showing details stay hidden until verification.
           </p>
         </section>
       </main>
@@ -524,7 +420,6 @@ export function InviteExperience({ token }: { token: string }) {
               autoComplete="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              readOnly={invitation.verificationRequired}
               required
             />
             <label htmlFor="phone">Phone</label>

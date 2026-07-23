@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jsonError } from "@/lib/http";
-import { authenticateAdmin } from "@/lib/security/admin";
+import { authenticateRealtor } from "@/lib/security/admin";
 import { getInvitationForAdmin } from "@/services/admin-invitation.service";
 
 export async function GET(
@@ -8,9 +8,9 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
-    authenticateAdmin(request);
+    const realtor = await authenticateRealtor(request);
     const { id } = await context.params;
-    return NextResponse.json(await getInvitationForAdmin(id));
+    return NextResponse.json(await getInvitationForAdmin(realtor.id, id));
   } catch (error: unknown) {
     return jsonError(error);
   }

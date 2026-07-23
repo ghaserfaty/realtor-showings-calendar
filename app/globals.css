@@ -73,8 +73,7 @@ textarea:focus-visible {
   padding: 32px 20px;
 }
 
-.private-card,
-.verification-card {
+.private-card {
   width: min(100%, 560px);
   padding: clamp(32px, 7vw, 64px);
   border: 1px solid rgba(29, 42, 37, 0.12);
@@ -84,7 +83,6 @@ textarea:focus-visible {
 }
 
 .private-card h1,
-.verification-card h1,
 .intro-section h1 {
   margin: 10px 0 18px;
   font-family:
@@ -97,13 +95,11 @@ textarea:focus-visible {
   letter-spacing: -0.04em;
 }
 
-.private-card h1,
-.verification-card h1 {
+.private-card h1 {
   font-size: clamp(2.35rem, 7vw, 4rem);
 }
 
 .private-card > p:last-child,
-.verification-card > p,
 .intro-section > p:last-child {
   color: var(--muted);
   font-size: 1.03rem;
@@ -512,8 +508,7 @@ form input:read-only {
   color: var(--danger);
 }
 
-.form-footnote,
-.security-note {
+.form-footnote {
   margin: 14px 0 0;
   color: var(--muted);
   font-size: 0.7rem;
@@ -540,37 +535,139 @@ form input:read-only {
   background: #e7f0e9;
 }
 
-.verification-page {
-  background: linear-gradient(
-    135deg,
-    transparent 52%,
-    rgba(220, 231, 223, 0.65)
-  );
+.oauth-shell {
+  width: min(100% - 40px, 1160px);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: clamp(36px, 7vw, 88px) 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.78fr);
+  gap: clamp(40px, 8vw, 110px);
+  align-items: center;
 }
 
-.verification-card .brand-row {
-  margin-bottom: 52px;
+.oauth-intro h1 {
+  max-width: 700px;
+  margin: 14px 0 22px;
+  font-family:
+    Iowan Old Style,
+    Baskerville,
+    "Times New Roman",
+    serif;
+  font-size: clamp(3.1rem, 7vw, 6.4rem);
+  font-weight: 500;
+  line-height: 0.96;
+  letter-spacing: -0.055em;
 }
 
-.verification-card .eyebrow {
-  margin-top: 0;
+.oauth-lead {
+  max-width: 620px;
+  color: var(--muted);
+  font-size: 1.08rem;
 }
 
-.verification-card .notice {
-  margin-top: 22px;
+.oauth-steps {
+  max-width: 620px;
+  margin: 34px 0;
+  padding-left: 22px;
+  color: #42534b;
 }
 
-.code-form input {
-  height: 62px;
-  font-size: 1.7rem;
-  font-weight: 700;
-  letter-spacing: 0.3em;
+.oauth-steps li {
+  margin: 12px 0;
+  padding-left: 8px;
+}
+
+.callback-box {
+  max-width: 660px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.callback-box span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.callback-box code {
+  overflow-wrap: anywhere;
+  color: var(--forest-dark);
+}
+
+.oauth-card {
+  padding: clamp(28px, 5vw, 48px);
+  border: 1px solid rgba(29, 42, 37, 0.12);
+  border-radius: 24px;
+  background: rgba(255, 254, 251, 0.94);
+  box-shadow: var(--shadow);
+}
+
+.oauth-card h2 {
+  margin: 8px 0 10px;
+  font-family:
+    Iowan Old Style,
+    Baskerville,
+    "Times New Roman",
+    serif;
+  font-size: 2.2rem;
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.oauth-card > div > p:last-child,
+.oauth-footnote,
+.field-help {
+  color: var(--muted);
+}
+
+.oauth-card form {
+  display: grid;
+  margin-top: 28px;
+}
+
+.oauth-card label {
+  margin: 16px 0 7px;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.oauth-card input {
+  width: 100%;
+  padding: 13px 14px;
+  color: var(--ink);
+  border: 1px solid #cfd5cf;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.oauth-card .notice {
+  margin: 22px 0 0;
+}
+
+.oauth-card .full-button {
+  margin-top: 24px;
+}
+
+.field-help {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+}
+
+.field-help code {
+  margin: 0 3px;
+}
+
+.oauth-footnote {
+  margin: 20px 0 0;
+  font-size: 0.78rem;
   text-align: center;
-}
-
-.code-form .text-button {
-  justify-self: center;
-  margin-top: 18px;
 }
 
 .empty-state {
@@ -651,6 +748,11 @@ footer {
 }
 
 @media (max-width: 940px) {
+  .oauth-shell {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
   .experience-grid {
     grid-template-columns: 1fr;
     gap: 42px;
@@ -662,6 +764,19 @@ footer {
 }
 
 @media (max-width: 620px) {
+  .oauth-shell {
+    width: min(100% - 28px, 1160px);
+    padding-top: 24px;
+  }
+
+  .oauth-intro h1 {
+    font-size: clamp(3rem, 17vw, 4.8rem);
+  }
+
+  .oauth-card {
+    padding: 26px 20px;
+  }
+
   .invite-shell {
     width: min(100% - 28px, 1220px);
     padding-top: 18px;
@@ -712,8 +827,7 @@ footer {
     margin-top: 60px;
   }
 
-  .private-card,
-  .verification-card {
+  .private-card {
     padding: 32px 24px;
   }
 

@@ -10,28 +10,10 @@ import type { z } from "zod";
 
 type CreateInvitationInput = z.infer<typeof createInvitationSchema>;
 
-export async function createInvitation(input: CreateInvitationInput) {
-  let realtor = input.realtorId
-    ? await prisma.realtor.findUnique({ where: { id: input.realtorId } })
-    : await prisma.realtor.findFirst({ orderBy: { createdAt: "asc" } });
-  if (!realtor && !input.realtorId) {
-    const config = getConfig();
-    realtor = await prisma.realtor.create({
-      data: {
-        email: config.REALTOR_EMAIL,
-        displayName: config.REALTOR_DISPLAY_NAME,
-        calendarOwnerReference: config.GOOGLE_CALENDAR_ID,
-      },
-    });
-  }
-  if (!realtor) {
-    throw new AppError(
-      "REALTOR_REQUIRED",
-      "Create a realtor record before issuing invitations.",
-      409,
-    );
-  }
-
+export async function createInvitation(
+  realtorId: string,
+  input: CreateInvitationInput,
+) {
   const plainToken = randomOpaqueToken();
   const invitation = await prisma.invitation.create({
     data: {
@@ -39,12 +21,9 @@ export async function createInvitation(input: CreateInvitationInput) {
       invitedEmail: input.invitedEmail,
       invitedName: input.invitedName,
       invitedPhone: input.invitedPhone,
-      realtorId: realtor.id,
+      realtorId,
       expiresAt: input.expiresAt,
       maxSubmissions: input.maxSubmissions,
-      verificationRequired:
-        input.verificationRequired ??
-        getConfig().REQUIRE_INVITATION_EMAIL_VERIFICATION,
     },
   });
   const invitationUrl = `${getConfig().APP_URL}/invite/${plainToken}`;
@@ -65,7 +44,6 @@ export async function createInvitation(input: CreateInvitationInput) {
     actorType: "ADMIN",
     metadata: {
       emailSent,
-      verificationRequired: invitation.verificationRequired,
     },
   });
   return {
@@ -77,9 +55,9 @@ export async function createInvitation(input: CreateInvitationInput) {
   };
 }
 
-export async function getInvitationForAdmin(id: string) {
-  const invitation = await prisma.invitation.findUnique({
-    where: { id },
+export async function getInvitationForAdmin(realtorId: string, id: string) {
+  const invitation = await prisma.invitation.findFirst({
+    where: { id, realtorId },
     include: {
       registrations: { orderBy: { registeredAt: "desc" } },
       realtor: { select: { id: true, email: true, displayName: true } },
@@ -92,17 +70,19 @@ export async function getInvitationForAdmin(id: string) {
   );
 }
 
-export async function revokeInvitation(id: string): Promise<void> {
-  const invitation = await prisma.invitation.findUnique({ where: { id } });
+export async function revokeInvitation(
+  realtorId: string,
+  id: string,
+): Promise<void> {
+  const invitation = await prisma.invitation.findFirst({
+    where: { id, realtorId },
+  });
   if (!invitation)
     throw new AppError("NOT_FOUND", "Invitation was not found.", 404);
-  await prisma.$transaction([
-    prisma.invitation.update({
-      where: { id },
-      data: { revokedAt: new Date() },
-    }),
-    prisma.invitationSession.deleteMany({ where: { invitationId: id } }),
-  ]);
+  await prisma.invitation.update({
+    where: { id },
+    data: { revokedAt: new Date() },
+  });
   await audit({
     action: "INVITATION_REVOKED",
     invitationId: id,
@@ -110,8 +90,10 @@ export async function revokeInvitation(id: string): Promise<void> {
   });
 }
 
-export async function resendInvitation(id: string) {
-  const invitation = await prisma.invitation.findUnique({ where: { id } });
+export async function resendInvitation(realtorId: string, id: string) {
+  const invitation = await prisma.invitation.findFirst({
+    where: { id, realtorId },
+  });
   if (
     !invitation ||
     invitation.revokedAt ||
@@ -126,13 +108,10 @@ export async function resendInvitation(id: string) {
   const oldHash = invitation.tokenHash;
   const plainToken = randomOpaqueToken();
   const invitationUrl = `${getConfig().APP_URL}/invite/${plainToken}`;
-  await prisma.$transaction([
-    prisma.invitation.update({
-      where: { id },
-      data: { tokenHash: sha256(plainToken) },
-    }),
-    prisma.invitationSession.deleteMany({ where: { invitationId: id } }),
-  ]);
+  await prisma.invitation.update({
+    where: { id },
+    data: { tokenHash: sha256(plainToken) },
+  });
   try {
     await sendInvitationEmail(invitation.invitedEmail, invitationUrl);
   } catch (error: unknown) {

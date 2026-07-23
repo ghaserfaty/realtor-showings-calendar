@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin, jsonError } from "@/lib/http";
-import { authenticateAdmin } from "@/lib/security/admin";
+import { authenticateRealtor } from "@/lib/security/admin";
 import { resendInvitation } from "@/services/admin-invitation.service";
 
 export async function POST(
@@ -9,9 +9,9 @@ export async function POST(
 ): Promise<NextResponse> {
   try {
     assertSameOrigin(request);
-    authenticateAdmin(request);
+    const realtor = await authenticateRealtor(request);
     const { id } = await context.params;
-    return NextResponse.json(await resendInvitation(id));
+    return NextResponse.json(await resendInvitation(realtor.id, id));
   } catch (error: unknown) {
     return jsonError(error);
   }

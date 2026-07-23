@@ -1,22 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin, jsonError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
-import { authenticateAdmin } from "@/lib/security/admin";
+import { authenticateRealtor } from "@/lib/security/admin";
 import { getCalendarSyncService } from "@/services/calendar-sync.service";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     assertSameOrigin(request);
-    authenticateAdmin(request);
+    const realtor = await authenticateRealtor(request);
     const failed = await prisma.registration.findMany({
-      where: { calendarSyncStatus: "ERROR" },
+      where: {
+        calendarSyncStatus: "ERROR",
+        invitation: { realtorId: realtor.id },
+      },
       distinct: ["calendarEventId"],
       select: { calendarEventId: true },
       take: 100,
     });
+    const syncService = await getCalendarSyncService(realtor.id);
     const results = await Promise.allSettled(
       failed.map(({ calendarEventId }) =>
-        getCalendarSyncService().syncEvent(calendarEventId),
+        syncService.syncEvent(calendarEventId),
       ),
     );
     return NextResponse.json({

@@ -38,21 +38,12 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://showings:showings@db:5432/showings?schema=public
       APP_URL: http://localhost:3000
-      ADMIN_API_KEY: ${ADMIN_API_KEY:-local-admin-key-change-before-production}
+      PLATFORM_ADMIN_API_KEY: ${PLATFORM_ADMIN_API_KEY:-local-platform-admin-key-change-before-production}
       SESSION_SECRET: ${SESSION_SECRET:-local-session-secret-change-before-production-1234}
-      OTP_PEPPER: ${OTP_PEPPER:-local-otp-pepper-change-before-production-1234}
-      REALTOR_EMAIL: ${REALTOR_EMAIL:-realtor@example.test}
-      REALTOR_DISPLAY_NAME: ${REALTOR_DISPLAY_NAME:-Local Realtor}
-      REQUIRE_INVITATION_EMAIL_VERIFICATION: ${REQUIRE_INVITATION_EMAIL_VERIFICATION:-false}
-      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
       EMAIL_WEBHOOK_URL: ${EMAIL_WEBHOOK_URL:-}
       EMAIL_WEBHOOK_API_KEY: ${EMAIL_WEBHOOK_API_KEY:-}
-      CALENDAR_PROVIDER: ${CALENDAR_PROVIDER:-mock}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REFRESH_TOKEN: ${GOOGLE_REFRESH_TOKEN:-}
-      GOOGLE_CALENDAR_ID: ${GOOGLE_CALENDAR_ID:-primary}
       SHOWING_FILTER_MODE: ${SHOWING_FILTER_MODE:-dedicated_calendar}
       SHOWING_EVENT_TYPE: ${SHOWING_EVENT_TYPE:-property_showing}
       SHOWING_TITLE_PREFIX: ${SHOWING_TITLE_PREFIX:-[SHOWING]}

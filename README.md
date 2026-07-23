@@ -1,79 +1,69 @@
-# Private Group Property Showings
+# Multi-tenant Property Showings
 
-A production-oriented Next.js application that lets a realtor issue private invitation links and lets each invited prospective buyer or renter select one or more **group** property showings. PostgreSQL is the registration source of truth; Google Calendar is a synchronized operational view.
+A production-oriented Next.js application where independent realtors issue private invitation links and invite prospects to select one or more group property showings from that realtor's Google Calendar.
 
-The application never has a public listing page. Only events explicitly marked as property showings are returned, and the browser receives a small sanitized DTO rather than a raw Google Calendar event.
+The private invitation URL is the invitee's bearer credential. There is no public listing page and no email-confirmation or OTP flow. PostgreSQL is the registration source of truth; Google Calendar is the realtor's operational view.
 
 ## Architecture
 
-The project runs on Node.js 22 with strict TypeScript, Next.js App Router, PostgreSQL, Prisma, Zod, Vitest, and the Google Calendar API.
+The project uses Node.js 22, strict TypeScript, Next.js App Router, PostgreSQL, Prisma, Zod, Google Calendar, Vitest, Docker, ESLint, and Prettier.
 
 ```text
-Browser invitation page
-  └─ Next.js API routes
-      ├─ invitation + session services
-      ├─ OTP verification + email provider
-      ├─ server-side showing filter
-      ├─ idempotent registration service
-      ├─ deterministic Calendar sync service
-      └─ Prisma repositories → PostgreSQL
-                              ↘ Google Calendar or mock provider
+Invitee browser
+  └─ private invitation token
+      └─ Next.js API
+          ├─ resolves Invitation → Realtor tenant
+          ├─ decrypts only that realtor's Calendar connection
+          ├─ filters and sanitizes that calendar's showings
+          └─ stores registrations in PostgreSQL
+
+Realtor API client
+  └─ tenant-specific API key
+      └─ invitations and Calendar connection for that realtor only
+
+Platform operator
+  └─ platform API key
+      └─ provisions realtor tenants
 ```
 
 Important boundaries:
 
-- `app/api` contains thin HTTP handlers only.
-- `services` owns domain rules and external synchronization.
-- `repositories` owns Prisma-backed access patterns.
-- `services/calendar` contains the provider interface plus Google and mock implementations.
-- `lib/validation` contains Zod request schemas.
-- `lib/security` contains hashing, masking, rate limiting, admin authentication, and headers.
-- PostgreSQL determines which invitation registered for which event. Calendar descriptions are never parsed as the database.
+- `app/api` contains HTTP Route Handlers.
+- `services` owns domain rules, tenant resolution, and external synchronization.
+- `repositories` owns Prisma access patterns.
+- `services/calendar` contains the Google and mock providers.
+- `components/invite/InviteExperience.tsx` is the only client-side application component.
+- Raw Google events, credentials, descriptions, organizer data, and private properties are never serialized to invitees.
 
-## Database model
+## Data model
 
-- `Realtor`: calendar owner reference and internal identity.
-- `Invitation`: SHA-256 token hash, recipient defaults, expiration/revocation, optional registration limit, and verification policy.
-- `InvitationSession`: hashed opaque browser session with optional verified-email timestamp.
-- `VerificationCode`: HMAC-hashed, ten-minute, single-use OTP with request and attempt limits.
-- `Registration`: one record per invitation/event pair, contact details, cancellation state, and separate Calendar sync state.
-- `AuditLog`: creation, access, verification, registration, cancellation, resend, and revocation activity; IP addresses are HMAC-hashed.
+- `Realtor` is the tenant. It stores tenant identity, a SHA-256 hash of its administrative API key, and its selected Calendar provider.
+- `GoogleCalendarConnection` is a one-to-one secret record. Client ID, client secret, refresh token, and calendar ID are independently encrypted with AES-256-GCM and tenant-bound authenticated context.
+- `Invitation` belongs to exactly one realtor and stores only the hash of its private URL token.
+- `Registration` records one invitation/event selection. `UNIQUE(invitationId, calendarEventId)` makes repeated submissions idempotent.
+- `AuditLog` records security and domain actions with HMAC-hashed IP addresses.
 
-The database enforces `UNIQUE(invitationId, calendarEventId)`. Different invitations may register for the same event. A showing is never made exclusive after one selection.
+There is intentionally no `Showing` table. Google Calendar is authoritative for showing time and availability. Tenant-aware database queries ensure that equal Calendar event IDs in different realtor accounts cannot mix capacity counts or synchronization state.
 
-## Quick start with Docker
-
-Requirements: Docker with Compose.
+## Local setup
 
 ```bash
 cp .env.example .env
-# Replace ADMIN_API_KEY, SESSION_SECRET, and OTP_PEPPER in .env.
-docker compose up --build -d
-docker compose run --rm migrate npm run db:seed
-```
-
-Open `http://localhost:3000`. The seed command prints one development-only valid invitation URL and one expired URL. The app defaults to the in-process mock Calendar provider, so Google credentials are not needed locally.
-
-Stop the stack with:
-
-```bash
-docker compose down
-```
-
-Use `docker compose down -v` only when you intentionally want to delete the local PostgreSQL volume.
-
-## Local development without Docker for the app
-
-Run PostgreSQL (the Compose database is convenient), then:
-
-```bash
-cp .env.example .env
+# Replace PLATFORM_ADMIN_API_KEY, SESSION_SECRET, and CREDENTIAL_ENCRYPTION_KEY.
 docker compose up -d db
 npm install
 npm run db:migrate
 npm run db:seed
 npm run dev
 ```
+
+Generate the encryption key with:
+
+```bash
+openssl rand -base64 32
+```
+
+The development seed creates one mock-calendar realtor, prints that realtor's API key once, and prints valid and expired invitation URLs.
 
 Quality commands:
 
@@ -84,66 +74,131 @@ npm test
 npm run build
 ```
 
+`npm run db:reset` destroys and recreates the configured database and is intended only for local development.
+
 ## Environment variables
 
-| Variable                                | Required    | Purpose                                                                                    |
-| --------------------------------------- | ----------- | ------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`                          | Yes         | PostgreSQL connection URL.                                                                 |
-| `APP_URL`                               | Yes         | Canonical origin used to create invitation links and validate mutation origins.            |
-| `ADMIN_API_KEY`                         | Yes         | Internal API bearer passed as `x-admin-api-key`; use a long random value.                  |
-| `SESSION_SECRET`                        | Yes         | HMAC secret for security metadata; at least 32 random characters.                          |
-| `OTP_PEPPER`                            | Yes         | Independent secret used to HMAC verification codes.                                        |
-| `REALTOR_EMAIL`                         | Yes         | Email for the realtor record created with the first invitation if the database is empty.   |
-| `REALTOR_DISPLAY_NAME`                  | Yes         | Display name for that initial realtor record.                                              |
-| `REQUIRE_INVITATION_EMAIL_VERIFICATION` | No          | Default verification policy for new invitations. Default `false`.                          |
-| `SESSION_COOKIE_SECURE`                 | No          | Force secure cookies outside production; use `true` behind HTTPS.                          |
-| `EMAIL_PROVIDER`                        | Yes for OTP | `console` in development or `webhook` in production. Console is rejected in production.    |
-| `EMAIL_WEBHOOK_URL`                     | For webhook | HTTPS endpoint accepting `{to, subject, text}` JSON.                                       |
-| `EMAIL_WEBHOOK_API_KEY`                 | No          | Sent as a bearer credential to the email webhook.                                          |
-| `CALENDAR_PROVIDER`                     | No          | `mock` or `google`. Default `mock`.                                                        |
-| `GOOGLE_CLIENT_ID`                      | For Google  | OAuth client ID.                                                                           |
-| `GOOGLE_CLIENT_SECRET`                  | For Google  | OAuth client secret.                                                                       |
-| `GOOGLE_REFRESH_TOKEN`                  | For Google  | Realtor-authorized offline refresh token.                                                  |
-| `GOOGLE_CALENDAR_ID`                    | Yes         | Exact calendar queried and updated. A dedicated showing calendar is recommended.           |
-| `SHOWING_FILTER_MODE`                   | No          | `dedicated_calendar` (recommended/default), `extended_property`, or legacy `title_prefix`. |
-| `SHOWING_OPEN_TITLE_PREFIX`             | No          | Editable title prefix that opens registration. Default `[ABIERTA]`.                        |
-| `SHOWING_CLOSED_TITLE_PREFIX`           | No          | Human-facing convention for closed events. Default `[CERRADA]`.                            |
-| `SHOWING_PUBLIC_BLOCK_START`            | No          | First line of the whitelisted public description block.                                    |
-| `SHOWING_PUBLIC_BLOCK_END`              | No          | Last line of the whitelisted public description block.                                     |
-| `SHOWING_EVENT_TYPE`                    | Legacy      | Event type used only in `extended_property` mode.                                          |
-| `SHOWING_TITLE_PREFIX`                  | Legacy      | Prefix used only in `title_prefix` mode.                                                   |
-| `ALLOW_REGISTRATION_CANCELLATION`       | No          | Allow the invitee to cancel before the showing starts.                                     |
-| `EXPOSE_GOOGLE_MEET_LINKS`              | No          | Reserved, off by default. Meet links are not currently exposed.                            |
-| `ADD_REGISTRANTS_AS_ATTENDEES`          | No          | Reserved, off by default. Registrants are not Calendar attendees.                          |
+| Variable                          | Required           | Purpose                                                                                  |
+| --------------------------------- | ------------------ | ---------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                    | Yes                | PostgreSQL connection URL. Use a pooled URL for serverless runtime traffic.              |
+| `APP_URL`                         | Yes                | Canonical HTTPS origin used in invitation links and origin checks.                       |
+| `PLATFORM_ADMIN_API_KEY`          | Yes                | Platform-only credential used to provision realtor tenants.                              |
+| `SESSION_SECRET`                  | Yes                | HMAC key for audit IP pseudonymization.                                                  |
+| `CREDENTIAL_ENCRYPTION_KEY`       | Yes                | Exactly 32 random bytes encoded as Base64. Never expose it to the browser.               |
+| `EMAIL_PROVIDER`                  | For email delivery | `console` in development or `webhook` in production. Used only to send invitation links. |
+| `EMAIL_WEBHOOK_URL`               | For webhook        | Endpoint accepting `{to, subject, text}` JSON.                                           |
+| `EMAIL_WEBHOOK_API_KEY`           | Optional           | Bearer credential sent to the email webhook.                                             |
+| `SHOWING_FILTER_MODE`             | No                 | `dedicated_calendar` (default), `extended_property`, or `title_prefix`.                  |
+| `SHOWING_OPEN_TITLE_PREFIX`       | No                 | Open showing title prefix. Default `[ABIERTA]`.                                          |
+| `SHOWING_CLOSED_TITLE_PREFIX`     | No                 | Closed showing title prefix. Default `[CERRADA]`.                                        |
+| `SHOWING_PUBLIC_BLOCK_START`      | No                 | Public-description opening marker.                                                       |
+| `SHOWING_PUBLIC_BLOCK_END`        | No                 | Public-description closing marker.                                                       |
+| `ALLOW_REGISTRATION_CANCELLATION` | No                 | Allows cancellation before the showing starts.                                           |
 
-Production startup intentionally fails if placeholder secrets or the development realtor address remain configured. The console email adapter refuses to deliver in production, so OTP-enabled deployments must configure the webhook adapter.
+Production configuration rejects placeholder platform, HMAC, and encryption secrets. Changing `CREDENTIAL_ENCRYPTION_KEY` without first re-encrypting stored connections makes existing Google credentials unreadable; back up and rotate it with an explicit key-rotation procedure.
 
-## Google Cloud and Calendar setup
+## Provisioning a realtor tenant
 
-1. Create or select a Google Cloud project.
-2. Enable **Google Calendar API**.
-3. Configure the OAuth consent screen. Add the realtor account as a test user while the app is in testing status.
-4. Create an OAuth 2.0 client (Web application for a hosted callback flow, or Desktop app for a one-time local token helper).
-5. Request the narrow scope `https://www.googleapis.com/auth/calendar.events` and offline access.
-6. Complete consent as the realtor, exchange the authorization code, and store the returned refresh token in `GOOGLE_REFRESH_TOKEN`.
-7. Set `GOOGLE_CALENDAR_ID` to the dedicated showings calendar ID or the exact owner calendar. Never send credentials to the browser.
+Tenant creation is a platform operation. The returned realtor API key is shown only once; the database stores only its SHA-256 hash.
 
-For a one-time refresh token, Google OAuth 2.0 Playground can be used: open its settings, enable “Use your own OAuth credentials,” enter the client values, authorize the Calendar events scope with access type offline/prompt consent, exchange the code, and copy the refresh token. Follow your organization’s secret-management policy; do not put the token in Git.
+```bash
+curl -X POST http://localhost:3000/api/platform/realtors \
+  -H 'content-type: application/json' \
+  -H 'x-platform-admin-api-key: your-platform-key' \
+  -d '{
+    "email":"realtor@example.com",
+    "displayName":"Example Realty",
+    "calendarProvider":"GOOGLE"
+  }'
+```
 
-If local development reports `No access, refresh token, API key or refresh handler callback is set`, `CALENDAR_PROVIDER=google` is active but `GOOGLE_REFRESH_TOKEN` is empty. Add a refresh token and restart `npm run dev`, or temporarily use `CALENDAR_PROVIDER=mock` to exercise the invitation flow without connecting Google Calendar.
+Store the returned `apiKey` in the realtor application's secret store. Every realtor administration request uses:
 
-Refresh tokens can be revoked by the account owner or invalidated by OAuth configuration changes. API errors are recorded per registration as `ERROR`; they do not roll back the database registration or create a duplicate on retry. An internal retry endpoint is provided at `POST /api/admin/calendar-sync/retry`.
+```text
+x-realtor-api-key: rlt_...
+```
 
-## Managing showings from the normal Google Calendar interface
+The platform key cannot be used as a realtor key and a realtor key cannot access another tenant's records.
 
-Create a separate Google Calendar used **only** for property showings and put its ID in `GOOGLE_CALENDAR_ID`. The application never queries the realtor's personal calendar. With the recommended `SHOWING_FILTER_MODE=dedicated_calendar`, no custom or extended properties are required.
+## Connecting a realtor's Google Calendar
 
-Create and edit events with the regular Calendar fields:
+Open the visual setup page:
+
+```text
+http://localhost:3000/admin/connect-calendar
+```
+
+Before starting:
+
+1. Enable Google Calendar API in the realtor's Google Cloud project.
+2. Create an OAuth client of type **Web application**.
+3. Add the exact callback shown by the setup page to **Authorized redirect URIs**. Locally it is:
+
+```text
+http://localhost:3000/api/admin/google-oauth/callback
+```
+
+4. Enter the realtor API key, OAuth Client ID, OAuth Client Secret, and dedicated Calendar ID.
+5. Continue to Google, choose the account, and grant Calendar event access.
+
+The backend creates a random ten-minute, single-use OAuth `state`, stores only its hash, and temporarily encrypts the setup credentials. Google returns an authorization code to the backend callback; the backend validates and consumes `state`, exchanges the code for offline tokens, verifies access to the configured calendar, encrypts the refresh token, and redirects to a clean success/error URL without OAuth query parameters.
+
+The plaintext refresh token is never returned to the browser. The pending encrypted OAuth record is deleted when the callback is consumed.
+
+The direct authenticated endpoint remains available for automation or recovery:
+
+```bash
+curl -X PUT http://localhost:3000/api/admin/calendar-connection \
+  -H 'content-type: application/json' \
+  -H 'x-realtor-api-key: rlt_...' \
+  -d '{
+    "provider":"GOOGLE",
+    "clientId":"...",
+    "clientSecret":"...",
+    "refreshToken":"...",
+    "calendarId":"..."
+  }'
+```
+
+For that direct endpoint, plaintext values exist only during the request and are encrypted before database persistence. API responses and logs never return them. `GET /api/admin/calendar-connection` returns only provider/configuration status.
+
+For local mock events, set the tenant connection to:
+
+```json
+{ "provider": "MOCK" }
+```
+
+## Creating invitations
+
+All admin endpoints are scoped to the realtor authenticated by `x-realtor-api-key`. Clients cannot supply an arbitrary `realtorId`.
+
+```bash
+curl -X POST http://localhost:3000/api/admin/invitations \
+  -H 'content-type: application/json' \
+  -H 'x-realtor-api-key: rlt_...' \
+  -d '{
+    "invitedEmail":"client@example.com",
+    "invitedName":"Jane Client",
+    "expiresAt":"2026-08-01T23:59:59Z",
+    "sendEmail":false
+  }'
+```
+
+The response returns the plain invitation token and URL once. Other tenant-scoped endpoints:
+
+- `GET /api/admin/invitations/:id`
+- `POST /api/admin/invitations/:id/revoke`
+- `POST /api/admin/invitations/:id/resend`
+- `POST /api/admin/calendar-sync/retry`
+
+## Managing showings in Google Calendar
+
+Use a dedicated calendar for each realtor. In the default `dedicated_calendar` mode, create events with normal Calendar UI fields:
 
 - **Title:** `[ABIERTA] Palermo – 2 ambientes`
 - **Location:** `Güemes 4120, Palermo`
-- **Date and time:** the normal start and end fields
-- **Description:** an optional, deliberately small public block followed by any internal notes
+- **Date/time:** a future start and end time; all-day events are excluded
+- **Description:** optional public block plus any private notes
 
 ```text
 PUBLIC_SHOWING
@@ -152,139 +207,50 @@ Notes: Meet in the lobby five minutes early.
 Capacity: 20
 END_PUBLIC_SHOWING
 
-Seller phone and internal access instructions can go here.
-This text is never returned to the invitee.
+Internal realtor notes stay outside this block.
 ```
 
-Only the exact `Listing`, `Notes`, and `Capacity` lines between the two markers are parsed. Everything outside the block remains private. `Listing` must be HTTPS, and `Capacity` is optional; omit it for an unlimited group showing.
+Google Calendar rich-text HTML and plain-text descriptions are both supported. Only `Listing`, `Notes`, and `Capacity` inside the markers are parsed. `Listing` must be HTTPS. Omit `Capacity` for unlimited group registration.
 
-Descriptions created with Google Calendar's rich-text editor are supported; the parser accepts both the HTML returned by the Calendar API and plain-text descriptions.
-
-To close registration, change the title prefix from `[ABIERTA]` to `[CERRADA]`. Deleting or cancelling the event, removing the open prefix, or allowing its start time to pass also removes it from availability. The dedicated calendar is the main security boundary; the open prefix is a second explicit allow-list.
-
-The older `extended_property` mode remains available for API-managed calendars, but it is no longer the default.
+Change `[ABIERTA]` to `[CERRADA]` to close registration. Cancelled, past, all-day, unprefixed, closed, and full events are excluded server-side.
 
 ## Calendar changes while an invitee is deciding
 
-The invitation page refreshes its showing list every 60 seconds and whenever the browser window regains focus. Any selected item whose public details changed is automatically unselected so the invitee must review it again.
+The page refreshes every 60 seconds and on browser focus. Submission always re-fetches the selected event from that invitation's realtor calendar and verifies its status, time, title prefix, public details, and capacity. A SHA-256 selection version detects changes and returns `409 SHOWING_CHANGED` instead of accepting stale state.
 
-The browser refresh is only a convenience; the server is authoritative. On submission, it fetches every selected event again from the exact configured calendar immediately before the database transaction and verifies that it:
+After registration, the application writes a managed attendee block into the Google event while preserving realtor-authored text. PostgreSQL remains authoritative if Calendar synchronization fails, and failed synchronization is tenant-scoped for retry.
 
-- still exists and is not cancelled;
-- still starts in the future;
-- still begins with `[ABIERTA]`;
-- has not reached its optional capacity; and
-- has the same title, address, start/end time, time zone, public notes, listing URL, and configured capacity that the invitee selected.
+## Security model
 
-The public fields are represented by an opaque SHA-256 selection version. If the event was moved or edited, registration returns HTTP `409 SHOWING_CHANGED`, the page reloads the current Calendar data, clears the stale selection, and asks the invitee to choose again. If it was closed, deleted, cancelled, started, or filled, registration returns the corresponding unavailable/full conflict instead. No stale browser state is trusted.
+- The invitation URL is a bearer credential. Anyone who obtains it can use it until expiration, revocation, or its configured selection limit.
+- Invitation and realtor API keys are stored only as hashes.
+- Google credentials use authenticated encryption with a random nonce and tenant/field-specific additional authenticated data.
+- Realtor endpoints derive tenant identity from the API key; request bodies cannot choose another tenant.
+- Calendar lookup, capacity counts, managed descriptions, failed-sync retries, and admin invitation reads are scoped by `realtorId`.
+- Mutation routes enforce origin checks, Zod validation, size limits, rate limits, and generic error responses.
+- Production infrastructure should redact `/invite/*` and `/api/invitations/*` paths from access logs.
 
-Google Calendar and PostgreSQL cannot participate in one distributed transaction, so an event could theoretically change in the very small interval after the final Calendar validation and during the database write. Calendar synchronization is tracked separately; failures remain visible as `ERROR` without duplicating the registration and can be retried or reviewed by the realtor.
-
-## Invitation-link security model
-
-Creation uses 32 cryptographically random bytes. The URL contains only an opaque token; the database stores only its SHA-256 hash. The plain token is returned once by the create endpoint. A resend rotates the token, invalidates existing invitation sessions, sends the replacement link, and returns the new token once.
-
-**Without email verification, the private URL is a bearer credential: anyone who obtains it may use it until it expires, reaches its configured limit, or is revoked.** Enable email OTP verification when it is important to ensure that only the intended recipient can use an invitation.
-
-When verification is enabled:
-
-1. The page exposes only a masked invited address.
-2. A six-digit code is delivered only to the stored address.
-3. The HMAC-hashed code expires after ten minutes, is single-use, allows five attempts, and has database plus IP request limits.
-4. Success issues an opaque, hashed server session in an `HttpOnly`, `SameSite=Strict`, secure-in-production cookie.
-5. The invited email becomes visible and read-only only after verification.
-
-The application does not log invitation tokens. In production, configure reverse proxies, observability, and analytics to redact `/invite/*` and `/api/invitations/*` path segments as URLs may otherwise be captured outside the application.
-
-## Admin API
-
-All internal endpoints require `x-admin-api-key`. In production, place them behind a private network or identity-aware proxy; the API key is an MVP control, not a substitute for a managed identity provider and role-based authorization.
-
-Create an invitation (the token and URL appear only in this response):
-
-```bash
-curl -X POST http://localhost:3000/api/admin/invitations \
-  -H 'content-type: application/json' \
-  -H 'x-admin-api-key: your-admin-key' \
-  -d '{
-    "invitedEmail":"client@example.com",
-    "invitedName":"Jane Client",
-    "expiresAt":"2026-08-01T23:59:59Z",
-    "verificationRequired":true,
-    "sendEmail":true
-  }'
-```
-
-Other endpoints:
-
-- `GET /api/admin/invitations/:id` — recipient metadata and selected showings; never returns the token hash.
-- `POST /api/admin/invitations/:id/revoke` — revoke and delete active invitation sessions.
-- `POST /api/admin/invitations/:id/resend` — rotate and resend the bearer token.
-- `POST /api/admin/calendar-sync/retry` — retry up to 100 events with failed synchronization.
-
-Public invitation endpoints follow the routes in the original brief under `/api/invitations/:token`.
-
-## Managed Calendar description block
-
-After each registration or cancellation, active database registrations for that event are sorted by registration time and ID and rendered between:
-
-```text
-<!-- SHOWING_REGISTRATIONS_START -->
-<!-- SHOWING_REGISTRATIONS_END -->
-```
-
-The service retrieves the current event, replaces only that managed block, preserves realtor-authored text outside it, and updates the private `registrationCount`. Repeating synchronization produces the same block rather than appending duplicate text. Clients are deliberately not added as Google Calendar attendees, which avoids invitation emails and attendee disclosure.
-
-## Deployment
-
-1. Provision PostgreSQL with encrypted connections, backups, and restricted network access.
-2. Build the Docker image from `Dockerfile` and run it behind an HTTPS reverse proxy.
-3. Store all secrets in the platform’s secret manager, not an image or checked-in `.env`.
-4. Run `npx prisma migrate deploy` as a release step before routing traffic.
-5. Use at least one persistent email webhook and set `CALENDAR_PROVIDER=google` with OAuth secrets.
-6. Restrict admin routes, redact invitation paths in infrastructure logs, and monitor the health route at `/api/health`.
-7. Schedule authenticated calls to `/api/admin/calendar-sync/retry` or replace it with a durable queue worker.
-
-The image uses Next.js standalone output and runs as an unprivileged user.
+The current realtor authentication surface is an API key, suitable for an internal API/MVP. A full SaaS should add interactive identity, MFA, RBAC, API-key rotation, and account recovery.
 
 ## Deploying to Vercel
 
-The application can be deployed to Vercel as a standard Next.js project. No `vercel.json` or custom build command is required. The `postinstall` script generates Prisma Client and Vercel can use the existing `npm run build` command.
+The application deploys as a standard Next.js project without `vercel.json` or a custom build command.
 
-Before the first production deployment:
+1. Import the Git repository into Vercel.
+2. Provision managed PostgreSQL with connection pooling; local Docker cannot be used by Vercel Functions.
+3. Add the production environment variables above.
+4. Run `npm run db:migrate` from a trusted release environment before serving traffic. Use a direct database URL for migrations when the provider supplies separate direct and pooled URLs.
+5. Provision tenants through the platform endpoint and configure each tenant's Calendar connection.
+6. Configure the email webhook only if the app must send invitation links.
 
-1. Import this Git repository into Vercel.
-2. Provision a managed PostgreSQL database. Use a pooled connection string for `DATABASE_URL`; `localhost` and the included Docker Compose database are only for local development.
-3. Add the variables from `.env.example` in Vercel Project Settings. At minimum, replace `APP_URL`, `ADMIN_API_KEY`, `SESSION_SECRET`, `OTP_PEPPER`, `REALTOR_EMAIL`, the database URL, and the Google OAuth values. Set `APP_URL` to the canonical HTTPS production domain and `CALENDAR_PROVIDER=google`.
-4. Run `npm run db:migrate` once from a trusted release environment with the production database URL before serving traffic. When the database vendor supplies separate pooled and direct URLs, use the direct URL for migrations and the pooled URL for Vercel Functions.
-5. Configure `EMAIL_PROVIDER=webhook` plus its URL and credential if invitations or OTP codes must be delivered. The console provider intentionally refuses production delivery.
+For production, register this exact redirect URI in every realtor-provided OAuth Web client:
 
-Vercel-specific operational considerations:
+```text
+https://your-production-domain.example/api/admin/google-oauth/callback
+```
 
-- API Route Handlers run as Node.js functions and make outbound calls to PostgreSQL, Google Calendar, and the configured email webhook.
-- The current IP rate limiter is process-local. It is useful as defense in depth but is not globally consistent across multiple Vercel instances; use Redis or a gateway-level limiter for production abuse protection.
-- Calendar synchronization retries are request-driven. Schedule the authenticated retry endpoint or replace it with a durable queue for stronger delivery guarantees.
-- Apply database migrations as a separate release step rather than from every serverless function or every preview build.
-
-## Security considerations
-
-- Raw Google events, attendees, organizer data, Meet links, descriptions, and private extended properties are never serialized to invitees.
-- Event IDs are treated as untrusted and fetched from the configured calendar again on every registration/cancellation.
-- Mutation routes enforce same-origin requests, strict cookies, Zod validation, body-size limits, rate limits, and generic errors.
-- User text is length-limited and rendered by React; line breaks and managed-block markers are stripped before Calendar synchronization.
-- Logging recursively redacts token/secret/code/cookie/authorization fields.
-- Capacity is optional and off unless an event declares a positive integer. Group registrations are never exclusive.
-- Security headers deny framing and restrict scripts, connections, forms, and browser capabilities.
+The included IP limiter is process-local and not globally consistent across multiple serverless instances. Use Redis or a gateway-level rate limiter for production abuse protection. Calendar retry is request-driven; a durable queue is recommended for stronger delivery guarantees.
 
 ## Tests
 
-Vitest covers valid/invalid/expired/revoked hashed invitation lookup, OTP expiration/attempt/reuse rules, exclusion of unrelated/past/cancelled/disabled Calendar events, valid showing sanitization, multiple invitees on one group event, same-invitation retries, cancellation ownership, Calendar sync failure persistence, preservation of realtor descriptions, and deterministic block replacement. Google Calendar is mocked in automated tests.
-
-## Known limitations and future improvements
-
-- The included IP limiter is process-local in addition to persistent OTP request limits. Multi-instance deployments should use Redis or an API-gateway limiter.
-- Calendar synchronization is request-driven with an admin retry endpoint. A durable queue with exponential backoff and dead-letter monitoring is recommended.
-- Optional Calendar capacity is checked immediately before the write but is not a cross-region distributed lock. High-contention capacity-limited events should use a database-backed event inventory and serializable allocation.
-- Admin authentication is an API key. Replace it with an identity provider, MFA, RBAC, and per-realtor authorization.
-- The webhook email adapter is intentionally provider-neutral. Add a signed provider-specific adapter with delivery/bounce telemetry.
-- Add token-at-rest encryption only if product requirements later require recovering an existing token; the current hash-only model intentionally makes that impossible and rotates on resend.
+Vitest covers invitation token validation, invitation expiration/revocation/limits, encrypted tenant credential isolation, OAuth authorization parameters, Google credential validation, showing filtering and sanitization, rich-text Calendar descriptions, stale-selection detection, group registration idempotency, cancellation ownership, Calendar sync failures, and deterministic managed-description replacement.

@@ -4,7 +4,6 @@ import { AppError } from "@/lib/errors";
 import { assertSameOrigin, clientIp, jsonError } from "@/lib/http";
 import { invitationService } from "@/services/invitation.service";
 import { cancelRegistration } from "@/services/registration.service";
-import { requireInvitationAccess } from "@/services/session.service";
 
 export async function DELETE(
   request: NextRequest,
@@ -21,11 +20,6 @@ export async function DELETE(
     }
     const { token, eventId } = await context.params;
     const invitation = await invitationService.validateToken(token, false);
-    await requireInvitationAccess(
-      request,
-      invitation.id,
-      invitation.verificationRequired,
-    );
     const registration = await cancelRegistration(
       invitation,
       eventId,

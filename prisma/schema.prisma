@@ -18,82 +18,85 @@ enum CalendarSyncStatus {
   ERROR
 }
 
+enum CalendarProviderType {
+  MOCK
+  GOOGLE
+}
+
 model Realtor {
-  id                     String       @id @default(cuid())
-  email                  String       @unique
-  displayName            String?
-  calendarOwnerReference String
-  invitations            Invitation[]
-  createdAt              DateTime     @default(now())
-  updatedAt              DateTime     @updatedAt
+  id                       String                    @id @default(cuid())
+  email                    String                    @unique
+  displayName              String?
+  adminApiKeyHash          String?                   @unique
+  calendarProvider         CalendarProviderType      @default(MOCK)
+  googleCalendarConnection GoogleCalendarConnection?
+  googleOAuthAttempts      GoogleOAuthAttempt[]
+  invitations              Invitation[]
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+}
+
+model GoogleOAuthAttempt {
+  id                    String   @id
+  realtorId             String
+  realtor               Realtor  @relation(fields: [realtorId], references: [id], onDelete: Cascade)
+  stateHash             String   @unique
+  encryptedClientId     String
+  encryptedClientSecret String
+  encryptedCalendarId   String
+  redirectUri           String
+  expiresAt             DateTime
+  createdAt             DateTime @default(now())
+
+  @@index([realtorId, expiresAt])
+}
+
+model GoogleCalendarConnection {
+  realtorId             String   @id
+  realtor               Realtor  @relation(fields: [realtorId], references: [id], onDelete: Cascade)
+  encryptedClientId     String
+  encryptedClientSecret String
+  encryptedRefreshToken String
+  encryptedCalendarId   String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
 
 model Invitation {
-  id                   String              @id @default(cuid())
-  tokenHash            String              @unique
-  invitedEmail         String
-  invitedName          String?
-  invitedPhone         String?
-  realtorId            String
-  realtor              Realtor             @relation(fields: [realtorId], references: [id], onDelete: Restrict)
-  expiresAt            DateTime
-  revokedAt            DateTime?
-  maxSubmissions       Int?
-  verificationRequired Boolean             @default(false)
-  createdAt            DateTime            @default(now())
-  lastAccessedAt       DateTime?
-  registrations        Registration[]
-  verificationCodes    VerificationCode[]
-  sessions             InvitationSession[]
+  id             String         @id @default(cuid())
+  tokenHash      String         @unique
+  invitedEmail   String
+  invitedName    String?
+  invitedPhone   String?
+  realtorId      String
+  realtor        Realtor        @relation(fields: [realtorId], references: [id], onDelete: Restrict)
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  maxSubmissions Int?
+  createdAt      DateTime       @default(now())
+  lastAccessedAt DateTime?
+  registrations  Registration[]
 
   @@index([expiresAt])
   @@index([realtorId])
 }
 
-model InvitationSession {
-  id              String     @id @default(cuid())
-  invitationId    String
-  invitation      Invitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
-  tokenHash       String     @unique
-  verifiedEmailAt DateTime?
-  expiresAt       DateTime
-  createdAt       DateTime   @default(now())
-  lastSeenAt      DateTime   @default(now())
-
-  @@index([invitationId, expiresAt])
-}
-
-model VerificationCode {
-  id           String     @id @default(cuid())
-  invitationId String
-  invitation   Invitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
-  codeHash     String
-  expiresAt    DateTime
-  usedAt       DateTime?
-  attempts     Int        @default(0)
-  maxAttempts  Int        @default(5)
-  requestedIp  String?
-  createdAt    DateTime   @default(now())
-
-  @@index([invitationId, createdAt])
-}
-
 model Registration {
-  id                 String              @id @default(cuid())
+  id                 String             @id @default(cuid())
   invitationId       String
-  invitation         Invitation          @relation(fields: [invitationId], references: [id], onDelete: Restrict)
+  invitation         Invitation         @relation(fields: [invitationId], references: [id], onDelete: Restrict)
   calendarEventId    String
   fullName           String
   email              String
   phone              String
   notes              String?
-  status             RegistrationStatus  @default(CONFIRMED)
-  registeredAt       DateTime            @default(now())
+  status             RegistrationStatus @default(CONFIRMED)
+  registeredAt       DateTime           @default(now())
   cancelledAt        DateTime?
-  calendarSyncStatus CalendarSyncStatus  @default(PENDING)
+  calendarSyncStatus CalendarSyncStatus @default(PENDING)
   calendarSyncError  String?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
   @@unique([invitationId, calendarEventId])
   @@index([calendarEventId, status])

@@ -1,24 +1,27 @@
 import { google, type calendar_v3 } from "googleapis";
-import { getConfig, type AppConfig } from "@/lib/config";
+import { getConfig } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import type {
   CalendarEvent,
   CalendarProvider,
 } from "@/services/calendar/calendar.types";
 
-type GoogleOAuthConfig = Pick<
-  AppConfig,
-  "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET" | "GOOGLE_REFRESH_TOKEN"
->;
+export type GoogleCalendarCredentials = {
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+  calendarId: string;
+};
 
-export function missingGoogleOAuthVariables(
-  config: GoogleOAuthConfig,
+export function missingGoogleCredentialFields(
+  credentials: GoogleCalendarCredentials,
 ): string[] {
   return (
     [
-      ["GOOGLE_CLIENT_ID", config.GOOGLE_CLIENT_ID],
-      ["GOOGLE_CLIENT_SECRET", config.GOOGLE_CLIENT_SECRET],
-      ["GOOGLE_REFRESH_TOKEN", config.GOOGLE_REFRESH_TOKEN],
+      ["clientId", credentials.clientId],
+      ["clientSecret", credentials.clientSecret],
+      ["refreshToken", credentials.refreshToken],
+      ["calendarId", credentials.calendarId],
     ] as const
   )
     .filter(([, value]) => !value.trim())
@@ -49,30 +52,27 @@ function toCalendarEvent(
 export class GoogleCalendarProvider implements CalendarProvider {
   private readonly calendar: calendar_v3.Calendar;
 
-  constructor() {
-    const config = getConfig();
-    const missingVariables = missingGoogleOAuthVariables(config);
-    if (missingVariables.length > 0) {
+  constructor(private readonly credentials: GoogleCalendarCredentials) {
+    const missingFields = missingGoogleCredentialFields(credentials);
+    if (missingFields.length > 0) {
       throw new AppError(
         "GOOGLE_CALENDAR_NOT_CONFIGURED",
-        `Google Calendar is not configured. Missing: ${missingVariables.join(
-          ", ",
-        )}.`,
+        `Google Calendar is not configured. Missing: ${missingFields.join(", ")}.`,
         503,
       );
     }
     const auth = new google.auth.OAuth2(
-      config.GOOGLE_CLIENT_ID,
-      config.GOOGLE_CLIENT_SECRET,
+      credentials.clientId,
+      credentials.clientSecret,
     );
-    auth.setCredentials({ refresh_token: config.GOOGLE_REFRESH_TOKEN });
+    auth.setCredentials({ refresh_token: credentials.refreshToken });
     this.calendar = google.calendar({ version: "v3", auth });
   }
 
   async listUpcomingEvents(timeMin: Date): Promise<CalendarEvent[]> {
     const config = getConfig();
     const response = await this.calendar.events.list({
-      calendarId: config.GOOGLE_CALENDAR_ID,
+      calendarId: this.credentials.calendarId,
       timeMin: timeMin.toISOString(),
       singleEvents: true,
       orderBy: "startTime",
@@ -97,7 +97,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
   async getEvent(eventId: string): Promise<CalendarEvent | null> {
     try {
       const response = await this.calendar.events.get({
-        calendarId: getConfig().GOOGLE_CALENDAR_ID,
+        calendarId: this.credentials.calendarId,
         eventId,
         fields:
           "id,status,summary,location,description,start(dateTime,timeZone),end(dateTime,timeZone),extendedProperties(private),etag",
@@ -121,7 +121,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
   ): Promise<void> {
     await this.calendar.events.patch(
       {
-        calendarId: getConfig().GOOGLE_CALENDAR_ID,
+        calendarId: this.credentials.calendarId,
         eventId,
         sendUpdates: "none",
         requestBody: {

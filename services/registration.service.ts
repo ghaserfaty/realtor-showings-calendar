@@ -38,18 +38,7 @@ export async function registerForShowings(
   input: RegistrationInput,
   ip?: string,
 ): Promise<PublicRegistrationDto[]> {
-  if (
-    invitation.verificationRequired &&
-    input.email !== invitation.invitedEmail.toLowerCase()
-  ) {
-    throw new AppError(
-      "EMAIL_MISMATCH",
-      "Use the email address associated with this invitation.",
-      400,
-    );
-  }
-
-  const showingService = getShowingService();
+  const showingService = await getShowingService(invitation.realtorId);
   const existing = await prisma.registration.findMany({
     where: {
       invitationId: invitation.id,
@@ -149,7 +138,7 @@ export async function registerForShowings(
     return results;
   });
 
-  const syncService = getCalendarSyncService();
+  const syncService = await getCalendarSyncService(invitation.realtorId);
   for (const eventId of input.eventIds) {
     const reused = existingConfirmed.has(eventId);
     await audit({
@@ -185,7 +174,8 @@ export async function cancelRegistration(
   eventId: string,
   ip?: string,
 ): Promise<PublicRegistrationDto> {
-  await getShowingService().assertSelectable(eventId);
+  const showingService = await getShowingService(invitation.realtorId);
+  await showingService.assertSelectable(eventId);
   const registration = await prisma.registration.findUnique({
     where: {
       invitationId_calendarEventId: {
@@ -219,7 +209,8 @@ export async function cancelRegistration(
     metadata: { eventId },
   });
   try {
-    await getCalendarSyncService().syncEvent(eventId);
+    const syncService = await getCalendarSyncService(invitation.realtorId);
+    await syncService.syncEvent(eventId);
     const synced = await prisma.registration.update({
       where: { id: registration.id },
       data: { calendarSyncStatus: "SYNCED" },

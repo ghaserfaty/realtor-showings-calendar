@@ -18,7 +18,6 @@ function invitation(overrides: Partial<Invitation> = {}): Invitation {
     expiresAt: new Date("2026-07-21T12:00:00.000Z"),
     revokedAt: null,
     maxSubmissions: null,
-    verificationRequired: false,
     createdAt: now,
     lastAccessedAt: null,
     ...overrides,

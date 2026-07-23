@@ -17,27 +17,20 @@ const envSchema = z
         "postgresql://showings:showings@localhost:5434/showings?schema=public",
       ),
     APP_URL: z.string().url().default("http://localhost:3000"),
-    ADMIN_API_KEY: z.string().min(16).default("local-admin-key-change-me"),
+    PLATFORM_ADMIN_API_KEY: z
+      .string()
+      .min(24)
+      .default("local-platform-admin-key-change-me"),
     SESSION_SECRET: z
       .string()
       .min(32)
       .default("local-session-secret-change-before-production"),
-    OTP_PEPPER: z
+    CREDENTIAL_ENCRYPTION_KEY: z
       .string()
-      .min(32)
-      .default("local-otp-pepper-change-before-production"),
-    REALTOR_EMAIL: z.string().email().default("realtor@example.test"),
-    REALTOR_DISPLAY_NAME: z.string().min(1).max(120).default("Local Realtor"),
-    REQUIRE_INVITATION_EMAIL_VERIFICATION: booleanString,
-    SESSION_COOKIE_SECURE: booleanString,
+      .default("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
     EMAIL_PROVIDER: z.enum(["console", "webhook"]).default("console"),
     EMAIL_WEBHOOK_URL: z.string().url().or(z.literal("")).default(""),
     EMAIL_WEBHOOK_API_KEY: z.string().default(""),
-    CALENDAR_PROVIDER: z.enum(["mock", "google"]).default("mock"),
-    GOOGLE_CLIENT_ID: z.string().default(""),
-    GOOGLE_CLIENT_SECRET: z.string().default(""),
-    GOOGLE_REFRESH_TOKEN: z.string().default(""),
-    GOOGLE_CALENDAR_ID: z.string().min(1).default("primary"),
     SHOWING_FILTER_MODE: z
       .enum(["dedicated_calendar", "extended_property", "title_prefix"])
       .default("dedicated_calendar"),
@@ -55,15 +48,17 @@ const envSchema = z
   .superRefine((env, context) => {
     if (env.NODE_ENV === "production") {
       const unsafeDefaults = [
-        ["ADMIN_API_KEY", env.ADMIN_API_KEY],
+        ["PLATFORM_ADMIN_API_KEY", env.PLATFORM_ADMIN_API_KEY],
         ["SESSION_SECRET", env.SESSION_SECRET],
-        ["OTP_PEPPER", env.OTP_PEPPER],
+        ["CREDENTIAL_ENCRYPTION_KEY", env.CREDENTIAL_ENCRYPTION_KEY],
       ] as const;
       for (const [key, value] of unsafeDefaults) {
         if (
           value.includes("local-") ||
           value.includes("change-me") ||
-          value.includes("replace-with")
+          value.includes("replace-with") ||
+          (key === "CREDENTIAL_ENCRYPTION_KEY" &&
+            value === "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
         ) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
@@ -71,13 +66,6 @@ const envSchema = z
             path: [key],
           });
         }
-      }
-      if (env.REALTOR_EMAIL.endsWith(".test")) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "REALTOR_EMAIL must be configured in production",
-          path: ["REALTOR_EMAIL"],
-        });
       }
       if (env.EMAIL_PROVIDER === "webhook" && !env.EMAIL_WEBHOOK_URL) {
         context.addIssue({

@@ -52,4 +52,12 @@ describe("managed Calendar description block", () => {
     const current = rebuildManagedDescription("Original", [registration()]);
     expect(rebuildManagedDescription(current, [])).toBe("Original");
   });
+
+  it("omits the email line when the lead did not provide one", () => {
+    const result = rebuildManagedDescription("Original", [
+      registration({ email: null }),
+    ]);
+    expect(result).not.toContain("Email:");
+    expect(result).toContain("Phone: +1 555 123 4567");
+  });
 });

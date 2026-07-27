@@ -6,7 +6,7 @@ type FakeRegistration = {
   invitationId: string;
   calendarEventId: string;
   fullName: string;
-  email: string;
+  email: string | null;
   phone: string;
   notes: string | null;
   status: "CONFIRMED" | "CANCELLED";
@@ -88,7 +88,7 @@ const { state, key, fakeRegistrationApi } = vi.hoisted(() => {
         invitationId: String(data.invitationId),
         calendarEventId: String(data.calendarEventId),
         fullName: String(data.fullName),
-        email: String(data.email),
+        email: data.email ? String(data.email) : null,
         phone: String(data.phone),
         notes: data.notes ? String(data.notes) : null,
         status: "CONFIRMED",

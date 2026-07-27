@@ -13,7 +13,7 @@ export async function GET(
     const invitation = await invitationService.validateToken(token);
     const dto: PublicInvitationDto = {
       invitedName: invitation.invitedName ?? undefined,
-      invitedEmail: invitation.invitedEmail,
+      invitedEmail: invitation.invitedEmail ?? undefined,
       invitedPhone: invitation.invitedPhone ?? undefined,
       expiresAt: invitation.expiresAt.toISOString(),
     };

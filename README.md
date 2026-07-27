@@ -136,9 +136,6 @@ Google sign-in flow.
 | `CREDENTIAL_ENCRYPTION_KEY`       | Yes                | Exactly 32 random bytes encoded as Base64.                           |
 | `SESSION_SECRET`                  | Yes                | HMAC key for audit pseudonymization.                                 |
 | `PLATFORM_ADMIN_API_KEY`          | Optional for UI    | Protects platform provisioning APIs.                                 |
-| `EMAIL_PROVIDER`                  | For email delivery | `console` in development or `webhook` in production.                 |
-| `EMAIL_WEBHOOK_URL`               | For webhook        | Accepts `{to, subject, text}` JSON.                                  |
-| `EMAIL_WEBHOOK_API_KEY`           | Optional           | Bearer credential for the email webhook.                             |
 | `SHOWING_FILTER_MODE`             | No                 | `dedicated_calendar` by default.                                     |
 | `SHOWING_OPEN_TITLE_PREFIX`       | No                 | Default `[ABIERTA]`.                                                 |
 | `SHOWING_CLOSED_TITLE_PREFIX`     | No                 | Default `[CERRADA]`.                                                 |
@@ -182,10 +179,13 @@ curl -X POST http://localhost:3000/api/admin/invitations \
   -d '{
     "invitedEmail":"client@example.com",
     "invitedName":"Jane Client",
-    "expiresAt":"2026-08-15T23:59:59Z",
-    "sendEmail":false
+    "expiresAt":"2026-08-15T23:59:59Z"
   }'
 ```
+
+`invitedEmail`, `invitedName`, and `invitedPhone` are optional. The application
+only generates the private link; it does not send invitation emails. A lead can
+also register without providing an email address.
 
 ## Managing showings in Google Calendar
 

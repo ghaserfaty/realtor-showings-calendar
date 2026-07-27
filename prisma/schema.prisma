@@ -73,7 +73,7 @@ model GoogleCalendarConnection {
 model Invitation {
   id             String         @id @default(cuid())
   tokenHash      String         @unique
-  invitedEmail   String
+  invitedEmail   String?
   invitedName    String?
   invitedPhone   String?
   realtorId      String
@@ -95,7 +95,7 @@ model Registration {
   invitation         Invitation         @relation(fields: [invitationId], references: [id], onDelete: Restrict)
   calendarEventId    String
   fullName           String
-  email              String
+  email              String?
   phone              String
   notes              String?
   status             RegistrationStatus @default(CONFIRMED)

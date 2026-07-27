@@ -22,6 +22,17 @@ export function sessionCookieOptions(expiresAt: Date) {
   };
 }
 
+export function expiredSessionCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: getConfig().NODE_ENV === "production",
+    path: "/",
+    expires: new Date(0),
+    maxAge: 0,
+  };
+}
+
 export async function createRealtorSession(realtorId: string): Promise<{
   token: string;
   expiresAt: Date;

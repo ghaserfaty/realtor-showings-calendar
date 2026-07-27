@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 
 type InvitationSummary = {
   id: string;
-  invitedEmail: string;
+  invitedEmail?: string | null;
   invitedName?: string | null;
   invitedPhone?: string | null;
   expiresAt: string;
@@ -68,6 +68,7 @@ export function RealtorDashboard({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [newInvitationUrl, setNewInvitationUrl] = useState("");
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const activeInvitations = invitations.filter(
     (invitation) => invitation.status === "active",
@@ -141,25 +142,24 @@ export function RealtorDashboard({
     const values = new FormData(form);
     const maxSubmissions = values.get("maxSubmissions")?.toString().trim();
     const invitedName = values.get("invitedName")?.toString().trim();
+    const invitedEmail = values.get("invitedEmail")?.toString().trim();
     const invitedPhone = values.get("invitedPhone")?.toString().trim();
     try {
       const response = await fetch("/api/admin/invitations", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          invitedEmail: values.get("invitedEmail"),
+          invitedEmail: invitedEmail || undefined,
           invitedName: invitedName || undefined,
           invitedPhone: invitedPhone || undefined,
           expiresAt: new Date(values.get("expiresAt")?.toString() ?? ""),
           maxSubmissions: maxSubmissions
             ? Number.parseInt(maxSubmissions, 10)
             : undefined,
-          sendEmail: values.get("sendEmail") === "on",
         }),
       });
       const body = (await response.json()) as ApiError & {
         invitationUrl?: string;
-        emailSent?: boolean;
       };
       if (!response.ok || !body.invitationUrl) {
         throw new Error(
@@ -167,11 +167,7 @@ export function RealtorDashboard({
         );
       }
       setNewInvitationUrl(body.invitationUrl);
-      setNotice(
-        body.emailSent
-          ? "Invitation created and emailed."
-          : "Invitation created. Copy the private link now.",
-      );
+      setNotice("Invitation created. Copy the private link now.");
       form.reset();
       await reloadInvitations();
     } catch (reason: unknown) {
@@ -182,6 +178,29 @@ export function RealtorDashboard({
       );
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function logout(): Promise<void> {
+    setLoggingOut(true);
+    setError("");
+    try {
+      const response = await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as ApiError;
+        throw new Error(body.error?.message ?? "Logout could not be completed.");
+      }
+      window.location.replace("/");
+    } catch (reason: unknown) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Logout could not be completed.",
+      );
+      setLoggingOut(false);
     }
   }
 
@@ -262,9 +281,14 @@ export function RealtorDashboard({
             <strong>{realtor.displayName || realtor.email}</strong>
             <small>{realtor.email}</small>
           </span>
-          <form action="/api/auth/logout" method="post">
-            <button className="secondary-button compact-button">Log out</button>
-          </form>
+          <button
+            className="secondary-button compact-button"
+            type="button"
+            disabled={loggingOut}
+            onClick={() => void logout()}
+          >
+            {loggingOut ? "Logging out…" : "Log out"}
+          </button>
         </div>
       </header>
 
@@ -319,12 +343,11 @@ export function RealtorDashboard({
           <form onSubmit={createInvitation}>
             <div className="invite-form-grid">
               <label>
-                Lead email
+                Lead email <span>Optional</span>
                 <input
                   name="invitedEmail"
                   type="email"
                   autoComplete="email"
-                  required
                 />
               </label>
               <label>
@@ -353,10 +376,6 @@ export function RealtorDashboard({
                   max={100}
                   inputMode="numeric"
                 />
-              </label>
-              <label className="checkbox-row">
-                <input name="sendEmail" type="checkbox" />
-                Email the private link
               </label>
             </div>
             <button className="primary-button" disabled={busy}>
@@ -450,15 +469,19 @@ export function RealtorDashboard({
               <article className="invitation-row" key={invitation.id}>
                 <div className="lead-identity">
                   <span aria-hidden="true">
-                    {(invitation.invitedName || invitation.invitedEmail)
+                    {(invitation.invitedName || invitation.invitedEmail || "?")
                       .charAt(0)
                       .toUpperCase()}
                   </span>
                   <div>
                     <strong>
-                      {invitation.invitedName || invitation.invitedEmail}
+                      {invitation.invitedName ||
+                        invitation.invitedEmail ||
+                        "Unnamed lead"}
                     </strong>
-                    <small>{invitation.invitedEmail}</small>
+                    {invitation.invitedEmail && (
+                      <small>{invitation.invitedEmail}</small>
+                    )}
                   </div>
                 </div>
                 <div className="invitation-meta">

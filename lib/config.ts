@@ -30,9 +30,6 @@ const envSchema = z
       .default("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
     GOOGLE_OAUTH_CLIENT_ID: z.string().default(""),
     GOOGLE_OAUTH_CLIENT_SECRET: z.string().default(""),
-    EMAIL_PROVIDER: z.enum(["console", "webhook"]).default("console"),
-    EMAIL_WEBHOOK_URL: z.string().url().or(z.literal("")).default(""),
-    EMAIL_WEBHOOK_API_KEY: z.string().default(""),
     SHOWING_FILTER_MODE: z
       .enum(["dedicated_calendar", "extended_property", "title_prefix"])
       .default("dedicated_calendar"),
@@ -68,14 +65,6 @@ const envSchema = z
             path: [key],
           });
         }
-      }
-      if (env.EMAIL_PROVIDER === "webhook" && !env.EMAIL_WEBHOOK_URL) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          message:
-            "EMAIL_WEBHOOK_URL is required for the webhook email provider",
-          path: ["EMAIL_WEBHOOK_URL"],
-        });
       }
       if (!env.GOOGLE_OAUTH_CLIENT_ID || !env.GOOGLE_OAUTH_CLIENT_SECRET) {
         context.addIssue({

@@ -13,14 +13,14 @@ export const createInvitationSchema = z.object({
     .trim()
     .email()
     .max(254)
-    .transform((value) => value.toLowerCase()),
+    .transform((value) => value.toLowerCase())
+    .optional(),
   invitedName: z.string().trim().min(1).max(120).optional(),
   invitedPhone: phone.optional(),
   expiresAt: z.coerce
     .date()
     .refine((date) => date > new Date(), "Expiration must be in the future"),
   maxSubmissions: z.number().int().positive().max(100).optional(),
-  sendEmail: z.boolean().default(false),
 });
 
 export const registrationSchema = z
@@ -40,7 +40,8 @@ export const registrationSchema = z
       .trim()
       .email()
       .max(254)
-      .transform((value) => value.toLowerCase()),
+      .transform((value) => value.toLowerCase())
+      .optional(),
     phone,
     notes: z
       .string()

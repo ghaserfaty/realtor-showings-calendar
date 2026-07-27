@@ -17,12 +17,14 @@ function safeLine(value: string): string {
 function managedBlock(registrations: RegistrationRecord[]): string {
   if (registrations.length === 0) return "";
   const entries = registrations.map((registration) => {
+    const email = registration.email
+      ? `\n  Email: ${safeLine(registration.email)}`
+      : "";
     const notes = registration.notes
       ? `\n  Notes: ${safeLine(registration.notes)}`
       : "";
     return `* ${safeLine(registration.fullName)}
-  Email: ${safeLine(registration.email)}
-  Phone: ${safeLine(registration.phone)}${notes}
+  Phone: ${safeLine(registration.phone)}${email}${notes}
   Registered at: ${registration.registeredAt.toISOString()}
   Registration ID: ${registration.id}`;
   });

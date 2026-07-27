@@ -109,7 +109,7 @@ export function InviteExperience({ token }: { token: string }) {
     const data = await api<PublicInvitationDto>(basePath);
     setInvitation(data);
     setFullName((current) => current || data.invitedName || "");
-    setEmail((current) => current || data.invitedEmail);
+    setEmail((current) => current || data.invitedEmail || "");
     setPhone((current) => current || data.invitedPhone || "");
     await loadShowings();
   }, [basePath, loadShowings]);
@@ -172,7 +172,7 @@ export function InviteExperience({ token }: { token: string }) {
             ]),
           ),
           fullName,
-          email,
+          email: email || undefined,
           phone,
           notes: notes || undefined,
         }),
@@ -413,14 +413,15 @@ export function InviteExperience({ token }: { token: string }) {
               maxLength={120}
               required
             />
-            <label htmlFor="email">Email</label>
+            <label htmlFor="email">
+              Email <span>Optional</span>
+            </label>
             <input
               id="email"
               type="email"
               autoComplete="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              required
             />
             <label htmlFor="phone">Phone</label>
             <input

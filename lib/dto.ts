@@ -1,6 +1,6 @@
 export type PublicInvitationDto = {
   invitedName?: string;
-  invitedEmail: string;
+  invitedEmail?: string;
   invitedPhone?: string;
   expiresAt: string;
 };

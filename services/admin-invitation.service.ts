@@ -1,11 +1,9 @@
 import { getConfig } from "@/lib/config";
 import { AppError } from "@/lib/errors";
-import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { randomOpaqueToken, sha256 } from "@/lib/security/crypto";
 import type { createInvitationSchema } from "@/lib/validation/invitation";
 import { audit } from "@/services/audit.service";
-import { sendInvitationEmail } from "@/services/email.service";
 import type { z } from "zod";
 
 type CreateInvitationInput = z.infer<typeof createInvitationSchema>;
@@ -27,32 +25,17 @@ export async function createInvitation(
     },
   });
   const invitationUrl = `${getConfig().APP_URL}/invite/${plainToken}`;
-  let emailSent = false;
-  if (input.sendEmail) {
-    try {
-      await sendInvitationEmail(invitation.invitedEmail, invitationUrl);
-      emailSent = true;
-    } catch {
-      logger.warn("Invitation was created but email delivery failed", {
-        invitationId: invitation.id,
-      });
-    }
-  }
   await audit({
     action: "INVITATION_CREATED",
     invitationId: invitation.id,
     actorType: "ADMIN",
     actorId: realtorId,
-    metadata: {
-      emailSent,
-    },
   });
   return {
     id: invitation.id,
     token: plainToken,
     invitationUrl,
     expiresAt: invitation.expiresAt.toISOString(),
-    emailSent,
   };
 }
 
@@ -128,44 +111,4 @@ export async function revokeInvitation(
     actorType: "ADMIN",
     actorId: realtorId,
   });
-}
-
-export async function resendInvitation(realtorId: string, id: string) {
-  const invitation = await prisma.invitation.findFirst({
-    where: { id, realtorId },
-  });
-  if (
-    !invitation ||
-    invitation.revokedAt ||
-    invitation.expiresAt <= new Date()
-  ) {
-    throw new AppError(
-      "NOT_FOUND",
-      "Invitation is not available for resend.",
-      404,
-    );
-  }
-  const oldHash = invitation.tokenHash;
-  const plainToken = randomOpaqueToken();
-  const invitationUrl = `${getConfig().APP_URL}/invite/${plainToken}`;
-  await prisma.invitation.update({
-    where: { id },
-    data: { tokenHash: sha256(plainToken) },
-  });
-  try {
-    await sendInvitationEmail(invitation.invitedEmail, invitationUrl);
-  } catch (error: unknown) {
-    await prisma.invitation.update({
-      where: { id },
-      data: { tokenHash: oldHash },
-    });
-    throw error;
-  }
-  await audit({
-    action: "INVITATION_RESENT",
-    invitationId: id,
-    actorType: "ADMIN",
-    actorId: realtorId,
-  });
-  return { invitationUrl, token: plainToken, emailSent: true };
 }

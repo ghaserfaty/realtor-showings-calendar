@@ -4,6 +4,10 @@ import { AppError } from "@/lib/errors";
 import { getConfig } from "@/lib/config";
 import { prisma } from "@/lib/prisma";
 import { secureCompare, sha256 } from "@/lib/security/crypto";
+import {
+  findRealtorBySessionToken,
+  REALTOR_SESSION_COOKIE,
+} from "@/lib/security/realtor-session";
 
 export function authenticatePlatformAdmin(request: NextRequest): void {
   const supplied = request.headers.get("x-platform-admin-api-key") ?? "";
@@ -15,6 +19,10 @@ export function authenticatePlatformAdmin(request: NextRequest): void {
 export async function authenticateRealtor(
   request: NextRequest,
 ): Promise<Realtor> {
+  const sessionToken = request.cookies.get(REALTOR_SESSION_COOKIE)?.value ?? "";
+  const sessionRealtor = await findRealtorBySessionToken(sessionToken);
+  if (sessionRealtor) return sessionRealtor;
+
   const supplied = request.headers.get("x-realtor-api-key") ?? "";
   if (!/^rlt_[A-Za-z0-9_-]{32,200}$/.test(supplied)) {
     throw new AppError("UNAUTHORIZED", "Authentication is required.", 401);

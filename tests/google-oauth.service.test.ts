@@ -1,17 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   buildGoogleAuthorizationUrl,
-  GOOGLE_CALENDAR_SCOPE,
+  GOOGLE_CALENDAR_SCOPES,
+  GOOGLE_OPENID_SCOPES,
 } from "@/services/google-oauth.service";
 
 describe("Google OAuth authorization URL", () => {
-  it("requests offline Calendar access with tenant state", () => {
+  it("requests identity, offline Calendar access, state, nonce and PKCE", () => {
     const url = new URL(
       buildGoogleAuthorizationUrl({
         clientId: "client.apps.googleusercontent.com",
-        clientSecret: "client-secret",
-        redirectUri: "https://app.example.com/api/admin/google-oauth/callback",
+        redirectUri: "https://app.example.com/api/auth/google/callback",
         state: "opaque-state",
+        nonce: "opaque-nonce",
+        codeChallenge: "pkce-challenge",
       }),
     );
 
@@ -20,7 +22,13 @@ describe("Google OAuth authorization URL", () => {
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("prompt")).toContain("consent");
     expect(url.searchParams.get("include_granted_scopes")).toBe("true");
-    expect(url.searchParams.get("scope")).toBe(GOOGLE_CALENDAR_SCOPE);
+    expect(url.searchParams.get("scope")?.split(" ")).toEqual([
+      ...GOOGLE_OPENID_SCOPES,
+      ...GOOGLE_CALENDAR_SCOPES,
+    ]);
     expect(url.searchParams.get("state")).toBe("opaque-state");
+    expect(url.searchParams.get("nonce")).toBe("opaque-nonce");
+    expect(url.searchParams.get("code_challenge")).toBe("pkce-challenge");
+    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
   });
 });

@@ -4,6 +4,8 @@ import { hmacSha256 } from "@/lib/security/crypto";
 
 export type AuditAction =
   | "REALTOR_CREATED"
+  | "REALTOR_LOGIN"
+  | "REALTOR_LOGOUT"
   | "CALENDAR_CONNECTION_UPDATED"
   | "INVITATION_CREATED"
   | "INVITATION_ACCESSED"

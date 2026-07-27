@@ -1,15 +1,18 @@
+import "server-only";
+import { google } from "googleapis";
 import type { z } from "zod";
+import { getConfig } from "@/lib/config";
+import { AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { randomOpaqueToken, sha256 } from "@/lib/security/crypto";
-import { encryptCredential } from "@/lib/security/encryption";
-import type {
-  calendarConnectionSchema,
-  createRealtorSchema,
-} from "@/lib/validation/realtor";
+import {
+  decryptCredential,
+  encryptCredential,
+} from "@/lib/security/encryption";
+import type { createRealtorSchema } from "@/lib/validation/realtor";
 import { audit } from "@/services/audit.service";
 
 type CreateRealtorInput = z.infer<typeof createRealtorSchema>;
-type CalendarConnectionInput = z.infer<typeof calendarConnectionSchema>;
 
 export async function createRealtor(input: CreateRealtorInput) {
   const apiKey = `rlt_${randomOpaqueToken()}`;
@@ -37,58 +40,36 @@ export async function createRealtor(input: CreateRealtorInput) {
   return { realtor, apiKey };
 }
 
-export async function setCalendarConnection(
-  realtorId: string,
-  input: CalendarConnectionInput,
-) {
-  if (input.provider === "MOCK") {
-    await prisma.$transaction([
-      prisma.realtor.update({
-        where: { id: realtorId },
-        data: { calendarProvider: "MOCK" },
-      }),
-      prisma.googleCalendarConnection.deleteMany({ where: { realtorId } }),
-    ]);
-    await audit({
-      action: "CALENDAR_CONNECTION_UPDATED",
-      actorType: "ADMIN",
-      actorId: realtorId,
-      metadata: { provider: "MOCK" },
-    });
-    return { provider: "MOCK" as const, configured: true };
+async function googleAuthForRealtor(realtorId: string) {
+  const config = getConfig();
+  if (!config.GOOGLE_OAUTH_CLIENT_ID || !config.GOOGLE_OAUTH_CLIENT_SECRET) {
+    throw new AppError(
+      "GOOGLE_OAUTH_NOT_CONFIGURED",
+      "Google Calendar is not configured.",
+      503,
+    );
   }
-
-  const encrypt = (field: string, value: string) =>
-    encryptCredential(value, `${realtorId}:${field}`);
-  await prisma.$transaction([
-    prisma.googleCalendarConnection.upsert({
-      where: { realtorId },
-      update: {
-        encryptedClientId: encrypt("clientId", input.clientId),
-        encryptedClientSecret: encrypt("clientSecret", input.clientSecret),
-        encryptedRefreshToken: encrypt("refreshToken", input.refreshToken),
-        encryptedCalendarId: encrypt("calendarId", input.calendarId),
-      },
-      create: {
-        realtorId,
-        encryptedClientId: encrypt("clientId", input.clientId),
-        encryptedClientSecret: encrypt("clientSecret", input.clientSecret),
-        encryptedRefreshToken: encrypt("refreshToken", input.refreshToken),
-        encryptedCalendarId: encrypt("calendarId", input.calendarId),
-      },
-    }),
-    prisma.realtor.update({
-      where: { id: realtorId },
-      data: { calendarProvider: "GOOGLE" },
-    }),
-  ]);
-  await audit({
-    action: "CALENDAR_CONNECTION_UPDATED",
-    actorType: "ADMIN",
-    actorId: realtorId,
-    metadata: { provider: "GOOGLE" },
+  const connection = await prisma.googleCalendarConnection.findUnique({
+    where: { realtorId },
   });
-  return { provider: "GOOGLE" as const, configured: true };
+  if (!connection) {
+    throw new AppError(
+      "GOOGLE_CALENDAR_NOT_CONFIGURED",
+      "Google Calendar is not connected.",
+      409,
+    );
+  }
+  const auth = new google.auth.OAuth2(
+    config.GOOGLE_OAUTH_CLIENT_ID,
+    config.GOOGLE_OAUTH_CLIENT_SECRET,
+  );
+  auth.setCredentials({
+    refresh_token: decryptCredential(
+      connection.encryptedRefreshToken,
+      `${realtorId}:refreshToken`,
+    ),
+  });
+  return { auth, connection };
 }
 
 export async function getCalendarConnectionStatus(realtorId: string) {
@@ -96,7 +77,9 @@ export async function getCalendarConnectionStatus(realtorId: string) {
     where: { id: realtorId },
     select: {
       calendarProvider: true,
-      googleCalendarConnection: { select: { updatedAt: true } },
+      googleCalendarConnection: {
+        select: { updatedAt: true, encryptedCalendarId: true },
+      },
     },
   });
   return {
@@ -105,5 +88,65 @@ export async function getCalendarConnectionStatus(realtorId: string) {
       realtor.calendarProvider === "MOCK" ||
       Boolean(realtor.googleCalendarConnection),
     updatedAt: realtor.googleCalendarConnection?.updatedAt.toISOString(),
+    calendarId: realtor.googleCalendarConnection
+      ? decryptCredential(
+          realtor.googleCalendarConnection.encryptedCalendarId,
+          `${realtorId}:calendarId`,
+        )
+      : undefined,
   };
+}
+
+export async function listWritableCalendars(realtorId: string) {
+  const { auth } = await googleAuthForRealtor(realtorId);
+  const response = await google
+    .calendar({ version: "v3", auth })
+    .calendarList.list({
+      minAccessRole: "writer",
+      maxResults: 250,
+      fields:
+        "items(id,summary,summaryOverride,primary,accessRole,backgroundColor)",
+    });
+  return (response.data.items ?? []).flatMap((calendar) =>
+    calendar.id
+      ? [
+          {
+            id: calendar.id,
+            name:
+              calendar.summaryOverride ??
+              calendar.summary ??
+              (calendar.primary ? "Primary calendar" : calendar.id),
+            primary: Boolean(calendar.primary),
+            accessRole: calendar.accessRole ?? "writer",
+            color: calendar.backgroundColor ?? undefined,
+          },
+        ]
+      : [],
+  );
+}
+
+export async function selectCalendar(realtorId: string, calendarId: string) {
+  const { auth } = await googleAuthForRealtor(realtorId);
+  await google.calendar({ version: "v3", auth }).events.list({
+    calendarId,
+    maxResults: 1,
+    singleEvents: true,
+    fields: "items(id)",
+  });
+  await prisma.googleCalendarConnection.update({
+    where: { realtorId },
+    data: {
+      encryptedCalendarId: encryptCredential(
+        calendarId,
+        `${realtorId}:calendarId`,
+      ),
+    },
+  });
+  await audit({
+    action: "CALENDAR_CONNECTION_UPDATED",
+    actorType: "ADMIN",
+    actorId: realtorId,
+    metadata: { provider: "GOOGLE" },
+  });
+  return { configured: true, provider: "GOOGLE" as const, calendarId };
 }

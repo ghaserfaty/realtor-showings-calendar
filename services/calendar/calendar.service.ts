@@ -1,4 +1,5 @@
 import { AppError } from "@/lib/errors";
+import { getConfig } from "@/lib/config";
 import { prisma } from "@/lib/prisma";
 import { decryptCredential } from "@/lib/security/encryption";
 import { GoogleCalendarProvider } from "@/services/calendar/google-calendar.provider";
@@ -34,8 +35,8 @@ export async function getCalendarProvider(
   const decrypt = (field: string, value: string) =>
     decryptCredential(value, `${realtorId}:${field}`);
   return new GoogleCalendarProvider({
-    clientId: decrypt("clientId", connection.encryptedClientId),
-    clientSecret: decrypt("clientSecret", connection.encryptedClientSecret),
+    clientId: getConfig().GOOGLE_OAUTH_CLIENT_ID,
+    clientSecret: getConfig().GOOGLE_OAUTH_CLIENT_SECRET,
     refreshToken: decrypt("refreshToken", connection.encryptedRefreshToken),
     calendarId: decrypt("calendarId", connection.encryptedCalendarId),
   });

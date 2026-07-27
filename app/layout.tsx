@@ -3,11 +3,11 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "Private property showings",
-    template: "%s · Private property showings",
+    default: "Showing Workspace",
+    template: "%s · Showing Workspace",
   },
-  description: "Choose the group property showings that work for you.",
-  robots: { index: false, follow: false, nocache: true },
+  description:
+    "Private showing invitations and Google Calendar coordination for realtors.",
 };
 
 export const viewport: Viewport = {

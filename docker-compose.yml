@@ -37,10 +37,12 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://showings:showings@db:5432/showings?schema=public
-      APP_URL: http://localhost:3000
+      APP_URL: ${APP_URL:-http://localhost:3000}
       PLATFORM_ADMIN_API_KEY: ${PLATFORM_ADMIN_API_KEY:-local-platform-admin-key-change-before-production}
       SESSION_SECRET: ${SESSION_SECRET:-local-session-secret-change-before-production-1234}
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
       EMAIL_WEBHOOK_URL: ${EMAIL_WEBHOOK_URL:-}
       EMAIL_WEBHOOK_API_KEY: ${EMAIL_WEBHOOK_API_KEY:-}

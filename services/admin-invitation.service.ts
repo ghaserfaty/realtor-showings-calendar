@@ -42,6 +42,7 @@ export async function createInvitation(
     action: "INVITATION_CREATED",
     invitationId: invitation.id,
     actorType: "ADMIN",
+    actorId: realtorId,
     metadata: {
       emailSent,
     },
@@ -53,6 +54,44 @@ export async function createInvitation(
     expiresAt: invitation.expiresAt.toISOString(),
     emailSent,
   };
+}
+
+export async function listInvitationsForAdmin(realtorId: string) {
+  const invitations = await prisma.invitation.findMany({
+    where: { realtorId },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+    select: {
+      id: true,
+      invitedEmail: true,
+      invitedName: true,
+      invitedPhone: true,
+      expiresAt: true,
+      revokedAt: true,
+      maxSubmissions: true,
+      createdAt: true,
+      lastAccessedAt: true,
+      _count: { select: { registrations: true } },
+    },
+  });
+  const now = new Date();
+  return invitations.map((invitation) => ({
+    id: invitation.id,
+    invitedEmail: invitation.invitedEmail,
+    invitedName: invitation.invitedName,
+    invitedPhone: invitation.invitedPhone,
+    expiresAt: invitation.expiresAt.toISOString(),
+    revokedAt: invitation.revokedAt?.toISOString(),
+    maxSubmissions: invitation.maxSubmissions,
+    createdAt: invitation.createdAt.toISOString(),
+    lastAccessedAt: invitation.lastAccessedAt?.toISOString(),
+    registrationCount: invitation._count.registrations,
+    status: invitation.revokedAt
+      ? ("revoked" as const)
+      : invitation.expiresAt <= now
+        ? ("expired" as const)
+        : ("active" as const),
+  }));
 }
 
 export async function getInvitationForAdmin(realtorId: string, id: string) {
@@ -87,6 +126,7 @@ export async function revokeInvitation(
     action: "INVITATION_REVOKED",
     invitationId: id,
     actorType: "ADMIN",
+    actorId: realtorId,
   });
 }
 
@@ -125,6 +165,7 @@ export async function resendInvitation(realtorId: string, id: string) {
     action: "INVITATION_RESENT",
     invitationId: id,
     actorType: "ADMIN",
+    actorId: realtorId,
   });
   return { invitationUrl, token: plainToken, emailSent: true };
 }

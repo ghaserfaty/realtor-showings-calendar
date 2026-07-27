@@ -16,7 +16,13 @@ export function proxy(request: NextRequest): NextResponse {
   }
   response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
   response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
-  if (request.nextUrl.pathname.startsWith("/invite/")) {
+  if (
+    request.nextUrl.pathname.startsWith("/invite/") ||
+    request.nextUrl.pathname.startsWith("/admin") ||
+    request.nextUrl.pathname.startsWith("/api/auth/") ||
+    request.nextUrl.pathname.startsWith("/api/admin/") ||
+    request.nextUrl.pathname.startsWith("/api/invitations/")
+  ) {
     response.headers.set("Cache-Control", "no-store, private");
     response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
   }

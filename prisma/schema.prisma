@@ -27,10 +27,12 @@ model Realtor {
   id                       String                    @id @default(cuid())
   email                    String                    @unique
   displayName              String?
+  googleSubject            String?                   @unique
+  avatarUrl                String?
   adminApiKeyHash          String?                   @unique
   calendarProvider         CalendarProviderType      @default(MOCK)
   googleCalendarConnection GoogleCalendarConnection?
-  googleOAuthAttempts      GoogleOAuthAttempt[]
+  sessions                 RealtorSession[]
   invitations              Invitation[]
   createdAt                DateTime                  @default(now())
   updatedAt                DateTime                  @updatedAt
@@ -38,15 +40,23 @@ model Realtor {
 
 model GoogleOAuthAttempt {
   id                    String   @id
-  realtorId             String
-  realtor               Realtor  @relation(fields: [realtorId], references: [id], onDelete: Cascade)
   stateHash             String   @unique
-  encryptedClientId     String
-  encryptedClientSecret String
-  encryptedCalendarId   String
-  redirectUri           String
+  nonceHash             String
+  encryptedCodeVerifier String
   expiresAt             DateTime
   createdAt             DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+model RealtorSession {
+  id         String   @id @default(cuid())
+  realtorId  String
+  realtor    Realtor  @relation(fields: [realtorId], references: [id], onDelete: Cascade)
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
 
   @@index([realtorId, expiresAt])
 }
@@ -54,8 +64,6 @@ model GoogleOAuthAttempt {
 model GoogleCalendarConnection {
   realtorId             String   @id
   realtor               Realtor  @relation(fields: [realtorId], references: [id], onDelete: Cascade)
-  encryptedClientId     String
-  encryptedClientSecret String
   encryptedRefreshToken String
   encryptedCalendarId   String
   createdAt             DateTime @default(now())

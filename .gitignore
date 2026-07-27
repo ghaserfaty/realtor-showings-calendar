@@ -5,6 +5,7 @@ node_modules
 coverage
 .env
 .env.local
+client_secret_*.json
 *.log
 *.tsbuildinfo
 .DS_Store

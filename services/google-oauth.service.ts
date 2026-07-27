@@ -1,6 +1,6 @@
 import "server-only";
+import type { CodeChallengeMethod } from "google-auth-library";
 import { google } from "googleapis";
-import type { z } from "zod";
 import { getConfig } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
@@ -8,81 +8,102 @@ import {
   randomOpaqueToken,
   secureCompare,
   sha256,
+  sha256Base64Url,
 } from "@/lib/security/crypto";
 import {
   decryptCredential,
   encryptCredential,
 } from "@/lib/security/encryption";
-import type { googleOAuthStartSchema } from "@/lib/validation/realtor";
-import { setCalendarConnection } from "@/services/realtor.service";
+import { createRealtorSession } from "@/lib/security/realtor-session";
+import { audit } from "@/services/audit.service";
 
-export const GOOGLE_CALENDAR_SCOPE =
-  "https://www.googleapis.com/auth/calendar.events";
+export const GOOGLE_OPENID_SCOPES = ["openid", "email", "profile"] as const;
+export const GOOGLE_CALENDAR_SCOPES = [
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+] as const;
+
 const ATTEMPT_TTL_MS = 10 * 60 * 1000;
 
-type GoogleOAuthStartInput = z.infer<typeof googleOAuthStartSchema>;
-
-export function buildGoogleAuthorizationUrl(input: {
+function oauthConfiguration(): {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
+} {
+  const config = getConfig();
+  if (!config.GOOGLE_OAUTH_CLIENT_ID || !config.GOOGLE_OAUTH_CLIENT_SECRET) {
+    throw new AppError(
+      "GOOGLE_OAUTH_NOT_CONFIGURED",
+      "Google sign-in is not configured.",
+      503,
+    );
+  }
+  return {
+    clientId: config.GOOGLE_OAUTH_CLIENT_ID,
+    clientSecret: config.GOOGLE_OAUTH_CLIENT_SECRET,
+    redirectUri: new URL(
+      "/api/auth/google/callback",
+      config.APP_URL,
+    ).toString(),
+  };
+}
+
+export function buildGoogleAuthorizationUrl(input: {
+  clientId: string;
+  redirectUri: string;
   state: string;
+  nonce: string;
+  codeChallenge: string;
 }): string {
   const auth = new google.auth.OAuth2(
     input.clientId,
-    input.clientSecret,
+    undefined,
     input.redirectUri,
   );
   return auth.generateAuthUrl({
     access_type: "offline",
     prompt: "consent select_account",
     include_granted_scopes: true,
-    scope: [GOOGLE_CALENDAR_SCOPE],
+    scope: [...GOOGLE_OPENID_SCOPES, ...GOOGLE_CALENDAR_SCOPES],
     state: input.state,
+    nonce: input.nonce,
+    code_challenge: input.codeChallenge,
+    code_challenge_method: "S256" as CodeChallengeMethod,
   });
 }
 
-export async function startGoogleOAuth(
-  realtorId: string,
-  input: GoogleOAuthStartInput,
-): Promise<{ authorizationUrl: string }> {
+export async function startGoogleOAuth(): Promise<string> {
+  const { clientId, redirectUri } = oauthConfiguration();
+  const id = randomOpaqueToken(18);
   const state = randomOpaqueToken();
-  const attemptId = randomOpaqueToken(18);
-  const redirectUri = new URL(
-    "/api/admin/google-oauth/callback",
-    getConfig().APP_URL,
-  ).toString();
-  const encrypt = (field: string, value: string) =>
-    encryptCredential(value, `${realtorId}:oauthAttempt:${attemptId}:${field}`);
+  const nonce = randomOpaqueToken();
+  const codeVerifier = randomOpaqueToken(48);
 
   await prisma.$transaction([
     prisma.googleOAuthAttempt.deleteMany({
-      where: {
-        OR: [{ realtorId }, { expiresAt: { lte: new Date() } }],
-      },
+      where: { expiresAt: { lte: new Date() } },
     }),
     prisma.googleOAuthAttempt.create({
       data: {
-        id: attemptId,
-        realtorId,
+        id,
         stateHash: sha256(state),
-        encryptedClientId: encrypt("clientId", input.clientId),
-        encryptedClientSecret: encrypt("clientSecret", input.clientSecret),
-        encryptedCalendarId: encrypt("calendarId", input.calendarId),
-        redirectUri,
+        nonceHash: sha256(nonce),
+        encryptedCodeVerifier: encryptCredential(
+          codeVerifier,
+          `oauthAttempt:${id}:codeVerifier`,
+        ),
         expiresAt: new Date(Date.now() + ATTEMPT_TTL_MS),
       },
     }),
   ]);
 
-  return {
-    authorizationUrl: buildGoogleAuthorizationUrl({
-      clientId: input.clientId,
-      clientSecret: input.clientSecret,
-      redirectUri,
-      state,
-    }),
-  };
+  return buildGoogleAuthorizationUrl({
+    clientId,
+    redirectUri,
+    state,
+    nonce,
+    codeChallenge: sha256Base64Url(codeVerifier),
+  });
 }
 
 async function consumeAttempt(state: string) {
@@ -113,10 +134,77 @@ export async function discardGoogleOAuthAttempt(state: string): Promise<void> {
   await consumeAttempt(state);
 }
 
+function safeAvatarUrl(value?: string | null): string | undefined {
+  if (!value || value.length > 2000) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveRealtor(input: {
+  googleSubject: string;
+  email: string;
+  displayName?: string;
+  avatarUrl?: string;
+}) {
+  const [bySubject, byEmail] = await Promise.all([
+    prisma.realtor.findUnique({
+      where: { googleSubject: input.googleSubject },
+    }),
+    prisma.realtor.findUnique({ where: { email: input.email } }),
+  ]);
+  if (bySubject && byEmail && bySubject.id !== byEmail.id) {
+    throw new AppError(
+      "GOOGLE_ACCOUNT_CONFLICT",
+      "This Google account cannot be linked to the existing realtor.",
+      409,
+    );
+  }
+  if (byEmail?.googleSubject && byEmail.googleSubject !== input.googleSubject) {
+    throw new AppError(
+      "GOOGLE_ACCOUNT_CONFLICT",
+      "This email is already linked to another Google account.",
+      409,
+    );
+  }
+
+  const existing = bySubject ?? byEmail;
+  if (existing) {
+    return prisma.realtor.update({
+      where: { id: existing.id },
+      data: {
+        googleSubject: input.googleSubject,
+        email: input.email,
+        displayName: input.displayName,
+        avatarUrl: input.avatarUrl,
+      },
+    });
+  }
+  const realtor = await prisma.realtor.create({
+    data: {
+      googleSubject: input.googleSubject,
+      email: input.email,
+      displayName: input.displayName,
+      avatarUrl: input.avatarUrl,
+      calendarProvider: "GOOGLE",
+    },
+  });
+  await audit({
+    action: "REALTOR_CREATED",
+    actorType: "SYSTEM",
+    actorId: realtor.id,
+    metadata: { calendarProvider: "GOOGLE" },
+  });
+  return realtor;
+}
+
 export async function completeGoogleOAuth(
   state: string,
   code: string,
-): Promise<void> {
+): Promise<{ sessionToken: string; sessionExpiresAt: Date }> {
   const attempt = await consumeAttempt(state);
   if (!attempt || !code || code.length > 4096) {
     throw new AppError(
@@ -125,35 +213,72 @@ export async function completeGoogleOAuth(
       400,
     );
   }
-  const context = (field: string) =>
-    `${attempt.realtorId}:oauthAttempt:${attempt.id}:${field}`;
-  const clientId = decryptCredential(
-    attempt.encryptedClientId,
-    context("clientId"),
+
+  const { clientId, clientSecret, redirectUri } = oauthConfiguration();
+  const codeVerifier = decryptCredential(
+    attempt.encryptedCodeVerifier,
+    `oauthAttempt:${attempt.id}:codeVerifier`,
   );
-  const clientSecret = decryptCredential(
-    attempt.encryptedClientSecret,
-    context("clientSecret"),
-  );
-  const calendarId = decryptCredential(
-    attempt.encryptedCalendarId,
-    context("calendarId"),
-  );
-  const auth = new google.auth.OAuth2(
-    clientId,
-    clientSecret,
-    attempt.redirectUri,
-  );
-  const { tokens } = await auth.getToken(code);
-  if (!tokens.refresh_token) {
+  const auth = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+  const { tokens } = await auth.getToken({ code, codeVerifier });
+  if (!tokens.id_token) {
     throw new AppError(
-      "GOOGLE_REFRESH_TOKEN_MISSING",
-      "Google did not return offline access. Start the connection again and grant consent.",
+      "GOOGLE_IDENTITY_MISSING",
+      "Google did not return a verifiable identity.",
+      400,
+    );
+  }
+  const ticket = await auth.verifyIdToken({
+    idToken: tokens.id_token,
+    audience: clientId,
+  });
+  const identity = ticket.getPayload();
+  const returnedNonceHash = sha256(identity?.nonce ?? "");
+  if (
+    !identity?.sub ||
+    !identity.email ||
+    identity.email_verified !== true ||
+    !secureCompare(returnedNonceHash, attempt.nonceHash)
+  ) {
+    throw new AppError(
+      "GOOGLE_IDENTITY_INVALID",
+      "Google identity verification failed.",
       400,
     );
   }
 
-  auth.setCredentials(tokens);
+  const realtor = await resolveRealtor({
+    googleSubject: identity.sub,
+    email: identity.email.toLowerCase(),
+    displayName: identity.name || undefined,
+    avatarUrl: safeAvatarUrl(identity.picture),
+  });
+  const existingConnection = await prisma.googleCalendarConnection.findUnique({
+    where: { realtorId: realtor.id },
+  });
+  const refreshToken =
+    tokens.refresh_token ??
+    (existingConnection
+      ? decryptCredential(
+          existingConnection.encryptedRefreshToken,
+          `${realtor.id}:refreshToken`,
+        )
+      : undefined);
+  if (!refreshToken) {
+    throw new AppError(
+      "GOOGLE_REFRESH_TOKEN_MISSING",
+      "Google did not grant offline Calendar access. Please try again.",
+      400,
+    );
+  }
+  const calendarId = existingConnection
+    ? decryptCredential(
+        existingConnection.encryptedCalendarId,
+        `${realtor.id}:calendarId`,
+      )
+    : "primary";
+
+  auth.setCredentials({ ...tokens, refresh_token: refreshToken });
   await google.calendar({ version: "v3", auth }).events.list({
     calendarId,
     maxResults: 1,
@@ -161,11 +286,35 @@ export async function completeGoogleOAuth(
     fields: "items(id)",
   });
 
-  await setCalendarConnection(attempt.realtorId, {
-    provider: "GOOGLE",
-    clientId,
-    clientSecret,
-    refreshToken: tokens.refresh_token,
-    calendarId,
+  const encrypt = (field: string, value: string) =>
+    encryptCredential(value, `${realtor.id}:${field}`);
+  await prisma.$transaction([
+    prisma.googleCalendarConnection.upsert({
+      where: { realtorId: realtor.id },
+      update: {
+        encryptedRefreshToken: encrypt("refreshToken", refreshToken),
+        encryptedCalendarId: encrypt("calendarId", calendarId),
+      },
+      create: {
+        realtorId: realtor.id,
+        encryptedRefreshToken: encrypt("refreshToken", refreshToken),
+        encryptedCalendarId: encrypt("calendarId", calendarId),
+      },
+    }),
+    prisma.realtor.update({
+      where: { id: realtor.id },
+      data: { calendarProvider: "GOOGLE" },
+    }),
+  ]);
+  await audit({
+    action: "REALTOR_LOGIN",
+    actorType: "ADMIN",
+    actorId: realtor.id,
+    metadata: { provider: "GOOGLE" },
   });
+  const session = await createRealtorSession(realtor.id);
+  return {
+    sessionToken: session.token,
+    sessionExpiresAt: session.expiresAt,
+  };
 }

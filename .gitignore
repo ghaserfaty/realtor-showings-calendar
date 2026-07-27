@@ -5,6 +5,8 @@ node_modules
 coverage
 .env
 .env.local
+.env*.local
+.vercel
 client_secret_*.json
 *.log
 *.tsbuildinfo

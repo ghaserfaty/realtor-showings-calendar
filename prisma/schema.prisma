@@ -123,3 +123,12 @@ model AuditLog {
   @@index([invitationId, createdAt])
   @@index([action, createdAt])
 }
+
+model RateLimitBucket {
+  keyHash   String   @id
+  count     Int
+  resetsAt  DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([resetsAt])
+}

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function ConnectCalendarPage() {
-  redirect("/admin");
+  redirect("/realtor/dashboard");
 }

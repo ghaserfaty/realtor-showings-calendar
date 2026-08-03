@@ -26,7 +26,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       state,
       request.nextUrl.searchParams.get("code") ?? "",
     );
-    const response = resultRedirect("/admin");
+    const response = resultRedirect("/realtor/dashboard");
     response.cookies.set(
       REALTOR_SESSION_COOKIE,
       session.sessionToken,

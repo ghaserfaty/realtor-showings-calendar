@@ -1,10 +1,11 @@
 import { z } from "zod";
-import type { PublicShowingDto } from "@/lib/dto";
+import type { PublicShowingDto, RealtorShowingDto } from "@/lib/dto";
 import { AppError } from "@/lib/errors";
 import { getConfig, type AppConfig } from "@/lib/config";
 import { sha256 } from "@/lib/security/crypto";
 import { registrationRepository } from "@/repositories/registration.repository";
 import { getCalendarProvider } from "@/services/calendar/calendar.service";
+import { audit } from "@/services/audit.service";
 import type {
   CalendarEvent,
   CalendarProvider,
@@ -33,9 +34,21 @@ type ShowingConfig = Pick<
   | "SHOWING_EVENT_TYPE"
   | "SHOWING_TITLE_PREFIX"
   | "SHOWING_OPEN_TITLE_PREFIX"
+  | "SHOWING_CLOSED_TITLE_PREFIX"
   | "SHOWING_PUBLIC_BLOCK_START"
   | "SHOWING_PUBLIC_BLOCK_END"
 >;
+
+type ManageableShowing = {
+  showing: EligibleShowing;
+  availability: "open" | "closed";
+};
+
+function activeTitlePrefix(config: ShowingConfig): string {
+  return config.SHOWING_FILTER_MODE === "dedicated_calendar"
+    ? config.SHOWING_OPEN_TITLE_PREFIX
+    : config.SHOWING_TITLE_PREFIX;
+}
 
 type PublicBlock = {
   listingUrl?: string;
@@ -139,10 +152,7 @@ export function sanitizeShowing(
   now: Date,
 ): EligibleShowing | null {
   const privateProperties = event.extendedProperties?.private ?? {};
-  const titlePrefix =
-    config.SHOWING_FILTER_MODE === "dedicated_calendar"
-      ? config.SHOWING_OPEN_TITLE_PREFIX
-      : config.SHOWING_TITLE_PREFIX;
+  const titlePrefix = activeTitlePrefix(config);
   const usesCalendarUiFields =
     config.SHOWING_FILTER_MODE !== "extended_property";
   const matchesFilter = usesCalendarUiFields
@@ -212,6 +222,50 @@ export function sanitizeShowing(
   };
 }
 
+function manageableShowing(
+  event: CalendarEvent,
+  config: ShowingConfig,
+  now: Date,
+): ManageableShowing | null {
+  const privateProperties = event.extendedProperties?.private ?? {};
+  const activePrefix = activeTitlePrefix(config);
+  let availability: "open" | "closed";
+  let normalizedEvent = event;
+
+  if (config.SHOWING_FILTER_MODE === "extended_property") {
+    if (privateProperties.eventType !== config.SHOWING_EVENT_TYPE) return null;
+    if (privateProperties.registrationEnabled === "true") {
+      availability = "open";
+    } else if (privateProperties.registrationEnabled === "false") {
+      availability = "closed";
+      normalizedEvent = {
+        ...event,
+        extendedProperties: {
+          private: { ...privateProperties, registrationEnabled: "true" },
+        },
+      };
+    } else {
+      return null;
+    }
+  } else {
+    const summary = event.summary ?? "";
+    if (summary.startsWith(activePrefix)) {
+      availability = "open";
+    } else if (summary.startsWith(config.SHOWING_CLOSED_TITLE_PREFIX)) {
+      availability = "closed";
+      normalizedEvent = {
+        ...event,
+        summary: `${activePrefix}${summary.slice(config.SHOWING_CLOSED_TITLE_PREFIX.length)}`,
+      };
+    } else {
+      return null;
+    }
+  }
+
+  const showing = sanitizeShowing(normalizedEvent, config, now);
+  return showing ? { showing, availability } : null;
+}
+
 type CountsRepository = {
   countActiveForEvent(realtorId: string, eventId: string): Promise<number>;
   listForInvitation(
@@ -228,17 +282,11 @@ export class ShowingService {
     private readonly config: ShowingConfig = getConfig(),
   ) {}
 
-  async listForInvitation(invitationId: string): Promise<PublicShowingDto[]> {
+  private async listVisibleShowings(
+    registered: ReadonlySet<string>,
+  ): Promise<PublicShowingDto[]> {
     const now = this.now();
-    const [events, registrations] = await Promise.all([
-      this.calendar.listUpcomingEvents(now),
-      this.counts.listForInvitation(invitationId),
-    ]);
-    const registered = new Set(
-      registrations
-        .filter((registration) => registration.status === "CONFIRMED")
-        .map((registration) => registration.calendarEventId),
-    );
+    const events = await this.calendar.listUpcomingEvents(now);
 
     const candidates = events.flatMap((event) => {
       const showing = sanitizeShowing(event, this.config, now);
@@ -281,6 +329,118 @@ export class ShowingService {
       .sort((left, right) =>
         left.startDateTime.localeCompare(right.startDateTime),
       );
+  }
+
+  async listForInvitation(invitationId: string): Promise<PublicShowingDto[]> {
+    const registrations = await this.counts.listForInvitation(invitationId);
+    const registered = new Set(
+      registrations
+        .filter((registration) => registration.status === "CONFIRMED")
+        .map((registration) => registration.calendarEventId),
+    );
+    return this.listVisibleShowings(registered);
+  }
+
+  async listVisibleForLeads(): Promise<PublicShowingDto[]> {
+    return this.listVisibleShowings(new Set());
+  }
+
+  async listManageableForRealtor(): Promise<RealtorShowingDto[]> {
+    const now = this.now();
+    const events = await this.calendar.listUpcomingEvents(now, {
+      includeClosed: true,
+    });
+    const candidates = events.flatMap((event) => {
+      const manageable = manageableShowing(event, this.config, now);
+      return manageable ? [manageable] : [];
+    });
+    const showings = await Promise.all(
+      candidates.map(async ({ showing, availability }) => {
+        const registrationCount = await this.counts.countActiveForEvent(
+          this.realtorId,
+          showing.event.id,
+        );
+        const full = Boolean(
+          showing.capacity && registrationCount >= showing.capacity,
+        );
+        return {
+          eventId: showing.event.id,
+          propertyTitle: showing.propertyTitle,
+          propertyAddress: showing.propertyAddress,
+          startDateTime: showing.startDateTime,
+          endDateTime: showing.endDateTime,
+          timezone: showing.timezone,
+          listingUrl: showing.listingUrl,
+          publicShowingNotes: showing.publicShowingNotes,
+          selectionVersion: showingSelectionVersion(showing),
+          availability,
+          visibleToLeads: availability === "open" && !full,
+          registrationCount,
+          capacity: showing.capacity,
+          remainingCapacity: showing.capacity
+            ? Math.max(0, showing.capacity - registrationCount)
+            : undefined,
+        } satisfies RealtorShowingDto;
+      }),
+    );
+    return showings.sort((left, right) =>
+      left.startDateTime.localeCompare(right.startDateTime),
+    );
+  }
+
+  async setAvailability(eventId: string, open: boolean): Promise<void> {
+    const event = await this.calendar.getEvent(eventId);
+    const manageable = event
+      ? manageableShowing(event, this.config, this.now())
+      : null;
+    if (!event || !manageable) {
+      throw new AppError(
+        "SHOWING_UNAVAILABLE",
+        "This showing is no longer available for management.",
+        409,
+      );
+    }
+    const privateProperties = event.extendedProperties?.private ?? {};
+    const currentPrefix =
+      manageable.availability === "open"
+        ? activeTitlePrefix(this.config)
+        : this.config.SHOWING_CLOSED_TITLE_PREFIX;
+    const desiredPrefix = open
+      ? activeTitlePrefix(this.config)
+      : this.config.SHOWING_CLOSED_TITLE_PREFIX;
+    const summary =
+      this.config.SHOWING_FILTER_MODE === "extended_property"
+        ? (event.summary ?? manageable.showing.propertyTitle)
+        : `${desiredPrefix}${(event.summary ?? "").slice(currentPrefix.length)}`;
+    try {
+      await this.calendar.updateShowingAvailability(eventId, {
+        summary,
+        privateExtendedProperties: {
+          ...privateProperties,
+          ...(this.config.SHOWING_FILTER_MODE === "extended_property"
+            ? { registrationEnabled: open ? "true" : "false" }
+            : {}),
+        },
+        expectedEtag: event.etag ?? undefined,
+      });
+    } catch (error: unknown) {
+      const status = (error as { response?: { status?: number } }).response
+        ?.status;
+      if (status === 412) {
+        throw new AppError(
+          "SHOWING_CHANGED",
+          "This showing changed in Google Calendar. Refresh and try again.",
+          409,
+        );
+      }
+      throw error;
+    }
+    await audit({
+      action: open ? "SHOWING_OPENED" : "SHOWING_CLOSED",
+      actorType: "ADMIN",
+      actorId: this.realtorId,
+      metadata: { eventId },
+    });
   }
 
   async assertSelectable(

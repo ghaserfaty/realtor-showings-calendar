@@ -4,6 +4,7 @@ import {
   findRealtorBySessionToken,
   REALTOR_SESSION_COOKIE,
 } from "@/lib/security/realtor-session";
+import { hasCalendarConnection } from "@/services/realtor.service";
 
 const authMessages: Record<string, string> = {
   required: "Sign in with Google to open your realtor workspace.",
@@ -11,6 +12,7 @@ const authMessages: Record<string, string> = {
   error: "Google sign-in could not be completed. Please try again.",
   unavailable:
     "Google sign-in is not configured yet. Add the platform OAuth credentials.",
+  calendar_required: "Connect Google Calendar to open your realtor workspace.",
 };
 
 export default async function HomePage({
@@ -22,7 +24,9 @@ export default async function HomePage({
   const realtor = await findRealtorBySessionToken(
     cookieStore.get(REALTOR_SESSION_COOKIE)?.value ?? "",
   );
-  if (realtor) redirect("/admin");
+  if (realtor && (await hasCalendarConnection(realtor.id))) {
+    redirect("/realtor/dashboard");
+  }
   const { auth } = await searchParams;
 
   return (

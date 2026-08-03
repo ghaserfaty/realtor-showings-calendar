@@ -175,6 +175,23 @@ export class MockCalendarProvider implements CalendarProvider {
     };
     event.etag = `mock-${Date.now()}`;
   }
+
+  async updateShowingAvailability(
+    eventId: string,
+    input: {
+      summary: string;
+      privateExtendedProperties: Record<string, string>;
+    },
+  ): Promise<void> {
+    ensureSeeded();
+    const event = mockStore.get(eventId);
+    if (!event) throw new Error("Mock calendar event not found");
+    event.summary = input.summary;
+    event.extendedProperties = {
+      private: { ...input.privateExtendedProperties },
+    };
+    event.etag = `mock-${Date.now()}`;
+  }
 }
 
 export function resetMockCalendar(): void {

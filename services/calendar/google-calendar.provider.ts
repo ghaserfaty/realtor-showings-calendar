@@ -69,7 +69,10 @@ export class GoogleCalendarProvider implements CalendarProvider {
     this.calendar = google.calendar({ version: "v3", auth });
   }
 
-  async listUpcomingEvents(timeMin: Date): Promise<CalendarEvent[]> {
+  async listUpcomingEvents(
+    timeMin: Date,
+    options?: { includeClosed?: boolean },
+  ): Promise<CalendarEvent[]> {
     const config = getConfig();
     const response = await this.calendar.events.list({
       calendarId: this.credentials.calendarId,
@@ -79,10 +82,12 @@ export class GoogleCalendarProvider implements CalendarProvider {
       maxResults: 250,
       ...(config.SHOWING_FILTER_MODE === "extended_property"
         ? {
-            privateExtendedProperty: [
-              `eventType=${config.SHOWING_EVENT_TYPE}`,
-              "registrationEnabled=true",
-            ],
+            privateExtendedProperty: options?.includeClosed
+              ? [`eventType=${config.SHOWING_EVENT_TYPE}`]
+              : [
+                  `eventType=${config.SHOWING_EVENT_TYPE}`,
+                  "registrationEnabled=true",
+                ],
           }
         : {}),
       fields:
@@ -126,6 +131,30 @@ export class GoogleCalendarProvider implements CalendarProvider {
         sendUpdates: "none",
         requestBody: {
           description: input.description,
+          extendedProperties: { private: input.privateExtendedProperties },
+        },
+      },
+      input.expectedEtag
+        ? { headers: { "If-Match": input.expectedEtag } }
+        : undefined,
+    );
+  }
+
+  async updateShowingAvailability(
+    eventId: string,
+    input: {
+      summary: string;
+      privateExtendedProperties: Record<string, string>;
+      expectedEtag?: string;
+    },
+  ): Promise<void> {
+    await this.calendar.events.patch(
+      {
+        calendarId: this.credentials.calendarId,
+        eventId,
+        sendUpdates: "none",
+        requestBody: {
+          summary: input.summary,
           extendedProperties: { private: input.privateExtendedProperties },
         },
       },

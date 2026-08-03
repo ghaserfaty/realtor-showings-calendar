@@ -3,6 +3,16 @@ import { assertSameOrigin, jsonError } from "@/lib/http";
 import { authenticatePlatformAdmin } from "@/lib/security/admin";
 import { createRealtorSchema } from "@/lib/validation/realtor";
 import { createRealtor } from "@/services/realtor.service";
+import { listSupportRealtors } from "@/services/platform-support.service";
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  try {
+    authenticatePlatformAdmin(request);
+    return NextResponse.json({ realtors: await listSupportRealtors() });
+  } catch (error: unknown) {
+    return jsonError(error);
+  }
+}
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {

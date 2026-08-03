@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { buildInvitationMessage } from "@/lib/invitation-message";
 
 type InvitationSummary = {
   id: string;
@@ -31,6 +32,22 @@ type CalendarOption = {
   color?: string;
 };
 
+type VisibleShowing = {
+  eventId: string;
+  propertyTitle: string;
+  propertyAddress: string;
+  startDateTime: string;
+  endDateTime: string;
+  timezone: string;
+  listingUrl?: string;
+  publicShowingNotes?: string;
+  remainingCapacity?: number;
+  availability: "open" | "closed";
+  visibleToLeads: boolean;
+  registrationCount: number;
+  capacity?: number;
+};
+
 type Props = {
   realtor: {
     email: string;
@@ -48,6 +65,29 @@ function formatDate(value: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatShowingDate(showing: VisibleShowing): string {
+  const start = new Date(showing.startDateTime);
+  const end = new Date(showing.endDateTime);
+  const day = new Intl.DateTimeFormat("en", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: showing.timezone,
+  }).format(start);
+  const startTime = new Intl.DateTimeFormat("en", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: showing.timezone,
+  }).format(start);
+  const endTime = new Intl.DateTimeFormat("en", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: showing.timezone,
+    timeZoneName: "short",
+  }).format(end);
+  return `${day} · ${startTime}–${endTime}`;
 }
 
 export function RealtorDashboard({
@@ -69,6 +109,11 @@ export function RealtorDashboard({
   const [notice, setNotice] = useState("");
   const [newInvitationUrl, setNewInvitationUrl] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
+  const [showings, setShowings] = useState<VisibleShowing[]>([]);
+  const [showingsLoading, setShowingsLoading] = useState(
+    initialCalendarStatus.configured,
+  );
+  const [showingActionId, setShowingActionId] = useState("");
 
   const activeInvitations = invitations.filter(
     (invitation) => invitation.status === "active",
@@ -114,6 +159,38 @@ export function RealtorDashboard({
       active = false;
     };
   }, [initialCalendarStatus]);
+
+  useEffect(() => {
+    if (!initialCalendarStatus.configured) return;
+    let active = true;
+    void fetch("/api/admin/showings", { cache: "no-store" })
+      .then(async (response) => {
+        const body = (await response.json()) as ApiError & {
+          showings?: VisibleShowing[];
+        };
+        if (!response.ok) {
+          throw new Error(
+            body.error?.message ?? "Showings could not be loaded.",
+          );
+        }
+        if (active) setShowings(body.showings ?? []);
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : "Showings could not be loaded.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setShowingsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [initialCalendarStatus.configured]);
 
   async function reloadInvitations(): Promise<void> {
     const response = await fetch("/api/admin/invitations", {
@@ -167,7 +244,9 @@ export function RealtorDashboard({
         );
       }
       setNewInvitationUrl(body.invitationUrl);
-      setNotice("Invitation created. Copy the private link now.");
+      setNotice(
+        "Invitation created. Copy the link or ready-to-send message now.",
+      );
       form.reset();
       await reloadInvitations();
     } catch (reason: unknown) {
@@ -191,7 +270,9 @@ export function RealtorDashboard({
       });
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as ApiError;
-        throw new Error(body.error?.message ?? "Logout could not be completed.");
+        throw new Error(
+          body.error?.message ?? "Logout could not be completed.",
+        );
       }
       window.location.replace("/");
     } catch (reason: unknown) {
@@ -204,12 +285,33 @@ export function RealtorDashboard({
     }
   }
 
-  async function copyInvitation(): Promise<void> {
+  async function copyText(
+    value: string,
+    successMessage: string,
+  ): Promise<void> {
     try {
-      await navigator.clipboard.writeText(newInvitationUrl);
-      setNotice("Private invitation link copied.");
+      await navigator.clipboard.writeText(value);
+      setNotice(successMessage);
     } catch {
-      setError("Copy failed. Select and copy the link manually.");
+      setError("Copy failed. Select and copy the text manually.");
+    }
+  }
+
+  async function reloadShowings(): Promise<void> {
+    setShowingsLoading(true);
+    try {
+      const response = await fetch("/api/admin/showings", {
+        cache: "no-store",
+      });
+      const body = (await response.json()) as ApiError & {
+        showings?: VisibleShowing[];
+      };
+      if (!response.ok) {
+        throw new Error(body.error?.message ?? "Showings could not be loaded.");
+      }
+      setShowings(body.showings ?? []);
+    } finally {
+      setShowingsLoading(false);
     }
   }
 
@@ -255,6 +357,7 @@ export function RealtorDashboard({
         );
       }
       setCalendarStatus((current) => ({ ...current, calendarId }));
+      await reloadShowings();
       setNotice("Showing calendar updated.");
     } catch (reason: unknown) {
       setError(
@@ -267,10 +370,49 @@ export function RealtorDashboard({
     }
   }
 
+  async function changeShowingAvailability(
+    showing: VisibleShowing,
+  ): Promise<void> {
+    const open = showing.availability === "closed";
+    setShowingActionId(showing.eventId);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(
+        `/api/admin/showings/${encodeURIComponent(showing.eventId)}/availability`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ open }),
+        },
+      );
+      const body = (await response.json().catch(() => ({}))) as ApiError;
+      if (!response.ok) {
+        throw new Error(
+          body.error?.message ?? "The showing could not be updated.",
+        );
+      }
+      await reloadShowings();
+      setNotice(
+        open
+          ? "Showing opened and is now available to leads."
+          : "Showing closed and removed from lead invitation pages.",
+      );
+    } catch (reason: unknown) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "The showing could not be updated.",
+      );
+    } finally {
+      setShowingActionId("");
+    }
+  }
+
   return (
     <main className="admin-shell">
       <header className="admin-topbar">
-        <a className="brand-row dashboard-brand" href="/admin">
+        <a className="brand-row dashboard-brand" href="/realtor/dashboard">
           <span className="brand-mark" aria-hidden="true">
             M
           </span>
@@ -301,9 +443,6 @@ export function RealtorDashboard({
             synchronized with Google Calendar.
           </p>
         </div>
-        <a className="secondary-button" href="/api/auth/google/start">
-          Reconnect Google
-        </a>
       </section>
 
       {(error || notice) && (
@@ -344,11 +483,7 @@ export function RealtorDashboard({
             <div className="invite-form-grid">
               <label>
                 Lead email <span>Optional</span>
-                <input
-                  name="invitedEmail"
-                  type="email"
-                  autoComplete="email"
-                />
+                <input name="invitedEmail" type="email" autoComplete="email" />
               </label>
               <label>
                 Lead name <span>Optional</span>
@@ -386,7 +521,7 @@ export function RealtorDashboard({
           {newInvitationUrl && (
             <div className="generated-link" role="status">
               <span>Private link — shown only now</span>
-              <div>
+              <div className="copy-row">
                 <input
                   value={newInvitationUrl}
                   readOnly
@@ -395,11 +530,35 @@ export function RealtorDashboard({
                 <button
                   className="secondary-button"
                   type="button"
-                  onClick={copyInvitation}
+                  onClick={() =>
+                    void copyText(
+                      newInvitationUrl,
+                      "Private invitation link copied.",
+                    )
+                  }
                 >
-                  Copy
+                  Copy link
                 </button>
               </div>
+              <span className="message-label">Ready-to-send message</span>
+              <textarea
+                value={buildInvitationMessage(newInvitationUrl)}
+                readOnly
+                rows={3}
+                aria-label="Ready-to-send invitation message"
+              />
+              <button
+                className="secondary-button copy-message-button"
+                type="button"
+                onClick={() =>
+                  void copyText(
+                    buildInvitationMessage(newInvitationUrl),
+                    "Ready-to-send invitation message copied.",
+                  )
+                }
+              >
+                Copy message
+              </button>
             </div>
           )}
         </section>
@@ -449,6 +608,88 @@ export function RealtorDashboard({
           </p>
         </aside>
       </div>
+
+      <section className="admin-panel showing-preview">
+        <div className="panel-heading">
+          <div>
+            <p className="section-index">Calendar controls</p>
+            <h2>Open and close showings</h2>
+          </div>
+          <span>
+            {showings.filter((showing) => showing.visibleToLeads).length}{" "}
+            visible to leads
+          </span>
+        </div>
+        <p className="showing-preview-help">
+          Opening or closing a showing updates the event in Google Calendar.
+          Visibility and capacity use the same rules as every invitation link.
+        </p>
+        {showingsLoading ? (
+          <div className="empty-state">
+            <p>Loading the selected calendar…</p>
+          </div>
+        ) : showings.length === 0 ? (
+          <div className="empty-state">
+            <h3>No manageable showings</h3>
+            <p>
+              Add a future <code>[ABIERTA]</code> event to the active calendar.
+            </p>
+          </div>
+        ) : (
+          <div className="showing-preview-grid">
+            {showings.map((showing) => (
+              <article key={showing.eventId}>
+                <time dateTime={showing.startDateTime}>
+                  {formatShowingDate(showing)}
+                </time>
+                <span
+                  className={`status-label ${showing.visibleToLeads ? "active" : showing.availability === "closed" ? "revoked" : "expired"}`}
+                >
+                  {showing.visibleToLeads
+                    ? "Visible to leads"
+                    : showing.availability === "closed"
+                      ? "Closed"
+                      : "Full"}
+                </span>
+                <h3>{showing.propertyTitle}</h3>
+                <p>{showing.propertyAddress}</p>
+                {showing.publicShowingNotes && (
+                  <small>{showing.publicShowingNotes}</small>
+                )}
+                {showing.listingUrl && (
+                  <a
+                    className="showing-listing-link"
+                    href={showing.listingUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View listing
+                  </a>
+                )}
+                <footer>
+                  <span>
+                    {showing.capacity !== undefined
+                      ? `${showing.registrationCount}/${showing.capacity} registered`
+                      : `${showing.registrationCount} registered`}
+                  </span>
+                  <button
+                    className={`text-button ${showing.availability === "open" ? "danger-text" : ""}`}
+                    type="button"
+                    disabled={showingActionId === showing.eventId}
+                    onClick={() => void changeShowingAvailability(showing)}
+                  >
+                    {showingActionId === showing.eventId
+                      ? "Updating…"
+                      : showing.availability === "open"
+                        ? "Close showing"
+                        : "Open showing"}
+                  </button>
+                </footer>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="admin-panel invitation-history">
         <div className="panel-heading">

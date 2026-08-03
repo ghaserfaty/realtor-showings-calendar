@@ -12,3 +12,4 @@ client_secret_*.json
 *.tsbuildinfo
 .DS_Store
 prisma/dev.db
+.env*

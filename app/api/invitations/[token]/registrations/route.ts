@@ -12,12 +12,16 @@ export async function POST(
   try {
     assertSameOrigin(request);
     const ip = clientIp(request);
-    enforceRateLimit(`registration:${ip}`, {
+    await enforceRateLimit(`registration-ip:${ip}`, {
       limit: 30,
       windowMs: 15 * 60 * 1000,
     });
     const { token } = await context.params;
     const invitation = await invitationService.validateToken(token, false);
+    await enforceRateLimit(`registration:${invitation.id}`, {
+      limit: 60,
+      windowMs: 15 * 60 * 1000,
+    });
     const input = registrationSchema.parse(await request.json());
     const registrations = await registerForShowings(invitation, input, ip);
     return NextResponse.json({ registrations });

@@ -11,12 +11,23 @@ export type CalendarEvent = {
 };
 
 export interface CalendarProvider {
-  listUpcomingEvents(timeMin: Date): Promise<CalendarEvent[]>;
+  listUpcomingEvents(
+    timeMin: Date,
+    options?: { includeClosed?: boolean },
+  ): Promise<CalendarEvent[]>;
   getEvent(eventId: string): Promise<CalendarEvent | null>;
   updateManagedFields(
     eventId: string,
     input: {
       description: string;
+      privateExtendedProperties: Record<string, string>;
+      expectedEtag?: string;
+    },
+  ): Promise<void>;
+  updateShowingAvailability(
+    eventId: string,
+    input: {
+      summary: string;
       privateExtendedProperties: Record<string, string>;
       expectedEtag?: string;
     },

@@ -97,6 +97,20 @@ export async function getCalendarConnectionStatus(realtorId: string) {
   };
 }
 
+export async function hasCalendarConnection(realtorId: string) {
+  const realtor = await prisma.realtor.findUnique({
+    where: { id: realtorId },
+    select: {
+      calendarProvider: true,
+      googleCalendarConnection: { select: { realtorId: true } },
+    },
+  });
+  return Boolean(
+    realtor &&
+      (realtor.calendarProvider === "MOCK" || realtor.googleCalendarConnection),
+  );
+}
+
 export async function listWritableCalendars(realtorId: string) {
   const { auth } = await googleAuthForRealtor(realtorId);
   const response = await google

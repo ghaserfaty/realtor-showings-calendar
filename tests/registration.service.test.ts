@@ -23,6 +23,10 @@ const { state, key, fakeRegistrationApi } = vi.hoisted(() => {
     records: new Map<string, FakeRegistration>(),
     sequence: 0,
     syncShouldFail: false,
+    showingCapacity: undefined as number | undefined,
+    maxSubmissions: new Map<string, number | null>(),
+    lockCalls: 0,
+    lockQueries: [] as string[],
   };
   const localKey = (invitationId: string, eventId: string) =>
     `${invitationId}:${eventId}`;
@@ -49,12 +53,15 @@ const { state, key, fakeRegistrationApi } = vi.hoisted(() => {
       }
       return values;
     },
-    count: async ({ where }: { where: Record<string, unknown> }) =>
-      [...localState.records.values()].filter(
+    count: async ({ where }: { where: Record<string, unknown> }) => {
+      const eventId = where.calendarEventId;
+      return [...localState.records.values()].filter(
         (value) =>
           (!where.invitationId || value.invitationId === where.invitationId) &&
+          (!eventId || value.calendarEventId === eventId) &&
           (!where.status || value.status === where.status),
-      ).length,
+      ).length;
+    },
     findUnique: async ({
       where,
     }: {
@@ -134,14 +141,43 @@ const { state, key, fakeRegistrationApi } = vi.hoisted(() => {
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     registration: fakeRegistrationApi,
+    invitation: {
+      findUnique: async ({ where }: { where: { id: string } }) => ({
+        id: where.id,
+        realtorId: "realtor-1",
+        revokedAt: null,
+        expiresAt: new Date("2026-08-20T12:00:00.000Z"),
+        maxSubmissions: state.maxSubmissions.get(where.id) ?? null,
+      }),
+    },
     $transaction: async (input: unknown) => {
       if (typeof input === "function") {
         return (
           input as (transaction: {
             registration: typeof fakeRegistrationApi;
+            invitation: {
+              findUnique: (input: {
+                where: { id: string };
+              }) => Promise<Record<string, unknown>>;
+            };
+            $queryRaw: (query: TemplateStringsArray) => Promise<unknown[]>;
           }) => unknown
         )({
           registration: fakeRegistrationApi,
+          invitation: {
+            findUnique: async ({ where }: { where: { id: string } }) => ({
+              id: where.id,
+              realtorId: "realtor-1",
+              revokedAt: null,
+              expiresAt: new Date("2026-08-20T12:00:00.000Z"),
+              maxSubmissions: state.maxSubmissions.get(where.id) ?? null,
+            }),
+          },
+          $queryRaw: async (query: TemplateStringsArray) => {
+            state.lockCalls += 1;
+            state.lockQueries.push(query.join("?"));
+            return [];
+          },
         });
       }
       return Promise.all(input as Promise<unknown>[]);
@@ -150,7 +186,9 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 vi.mock("@/services/showing.service", () => ({
-  getShowingService: () => ({ assertSelectable: async () => ({}) }),
+  getShowingService: () => ({
+    assertSelectable: async () => ({ capacity: state.showingCapacity }),
+  }),
 }));
 
 vi.mock("@/services/audit.service", () => ({ audit: async () => undefined }));
@@ -209,6 +247,10 @@ describe("registration service", () => {
     state.records.clear();
     state.sequence = 0;
     state.syncShouldFail = false;
+    state.showingCapacity = undefined;
+    state.maxSubmissions.clear();
+    state.lockCalls = 0;
+    state.lockQueries = [];
   });
 
   it("allows multiple invitations to register for the same group showing", async () => {
@@ -229,6 +271,33 @@ describe("registration service", () => {
     const registrations = await registerForShowings(invitation("inv-1"), input);
     expect(state.records.size).toBe(1);
     expect(registrations[0]?.calendarSyncStatus).toBe("ERROR");
+  });
+
+  it("checks capacity again while holding transaction locks", async () => {
+    state.showingCapacity = 1;
+    await registerForShowings(invitation("inv-1"), input);
+
+    await expect(
+      registerForShowings(invitation("inv-2"), input),
+    ).rejects.toMatchObject({ code: "SHOWING_FULL" });
+    expect(state.records.size).toBe(1);
+    expect(state.lockCalls).toBeGreaterThanOrEqual(4);
+    expect(state.lockQueries).toEqual(
+      expect.arrayContaining([expect.stringContaining("::text")]),
+    );
+  });
+
+  it("checks an invitation submission limit inside the transaction", async () => {
+    state.maxSubmissions.set("inv-1", 1);
+    await registerForShowings(invitation("inv-1"), input);
+
+    await expect(
+      registerForShowings(invitation("inv-1"), {
+        ...input,
+        eventIds: ["group-showing-2"],
+        eventVersions: { "group-showing-2": "b".repeat(64) },
+      }),
+    ).rejects.toMatchObject({ code: "SUBMISSION_LIMIT" });
   });
 
   it("cancels only the requesting invitation's registration", async () => {

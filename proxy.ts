@@ -19,8 +19,11 @@ export function proxy(request: NextRequest): NextResponse {
   if (
     request.nextUrl.pathname.startsWith("/invite/") ||
     request.nextUrl.pathname.startsWith("/admin") ||
+    request.nextUrl.pathname.startsWith("/realtor/") ||
+    request.nextUrl.pathname.startsWith("/support") ||
     request.nextUrl.pathname.startsWith("/api/auth/") ||
     request.nextUrl.pathname.startsWith("/api/admin/") ||
+    request.nextUrl.pathname.startsWith("/api/platform/") ||
     request.nextUrl.pathname.startsWith("/api/invitations/")
   ) {
     response.headers.set("Cache-Control", "no-store, private");

@@ -7,7 +7,7 @@ import { startGoogleOAuth } from "@/services/google-oauth.service";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    enforceRateLimit(`google-login:${clientIp(request)}`, {
+    await enforceRateLimit(`google-login:${clientIp(request)}`, {
       limit: 20,
       windowMs: 60 * 60 * 1000,
     });

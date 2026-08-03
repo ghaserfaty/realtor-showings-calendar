@@ -1,4 +1,4 @@
-import type { Invitation } from "@prisma/client";
+import type { Invitation, Prisma } from "@prisma/client";
 import type { PublicRegistrationDto } from "@/lib/dto";
 import { AppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
@@ -6,7 +6,34 @@ import { prisma } from "@/lib/prisma";
 import type { RegistrationInput } from "@/lib/validation/invitation";
 import { audit } from "@/services/audit.service";
 import { getCalendarSyncService } from "@/services/calendar-sync.service";
-import { getShowingService } from "@/services/showing.service";
+import {
+  getShowingService,
+  type EligibleShowing,
+} from "@/services/showing.service";
+
+const transactionOptions = { maxWait: 5_000, timeout: 10_000 } as const;
+
+function lockResources(invitation: Invitation, eventIds: string[]): string[] {
+  return [
+    `invitation:${invitation.id}`,
+    ...eventIds.map((eventId) => `showing:${invitation.realtorId}:${eventId}`),
+  ].sort();
+}
+
+async function acquireRegistrationLocks(
+  transaction: Prisma.TransactionClient,
+  invitation: Invitation,
+  eventIds: string[],
+): Promise<void> {
+  // Transaction-scoped advisory locks serialize capacity checks without
+  // persisting a local copy of Calendar slots. Sorting prevents deadlocks when
+  // one request selects several events.
+  for (const resource of lockResources(invitation, eventIds)) {
+    await transaction.$queryRaw`
+      SELECT pg_advisory_xact_lock(hashtextextended(${resource}, 0))::text AS "lock"
+    `;
+  }
+}
 
 function toDto(registration: {
   id: string;
@@ -39,58 +66,103 @@ export async function registerForShowings(
   ip?: string,
 ): Promise<PublicRegistrationDto[]> {
   const showingService = await getShowingService(invitation.realtorId);
-  const existing = await prisma.registration.findMany({
-    where: {
-      invitationId: invitation.id,
-      calendarEventId: { in: input.eventIds },
-    },
-  });
-  const existingConfirmed = new Set(
-    existing
-      .filter((registration) => registration.status === "CONFIRMED")
-      .map((item) => item.calendarEventId),
-  );
-  if (invitation.maxSubmissions !== null) {
-    const activeCount = await prisma.registration.count({
-      where: { invitationId: invitation.id, status: "CONFIRMED" },
-    });
-    const additions = input.eventIds.filter(
-      (eventId) => !existingConfirmed.has(eventId),
-    ).length;
-    if (activeCount + additions > invitation.maxSubmissions) {
-      throw new AppError(
-        "SUBMISSION_LIMIT",
-        "This invitation cannot select any more showings.",
-        409,
-      );
-    }
-  }
 
   // Calendar is authoritative for availability. Re-fetch every event as close as
   // possible to the database write and compare it with the version shown to the user.
-  await Promise.all(
+  const showings = new Map<string, EligibleShowing>();
+  const validatedShowings = await Promise.all(
     input.eventIds.map((eventId) =>
       showingService.assertSelectable(eventId, input.eventVersions?.[eventId]),
     ),
   );
+  input.eventIds.forEach((eventId, index) => {
+    const showing = validatedShowings[index];
+    if (showing) showings.set(eventId, showing);
+  });
 
-  await prisma.$transaction(async (transaction) => {
-    const results = [];
-    for (const eventId of input.eventIds) {
-      const current = await transaction.registration.findUnique({
+  const reusedEventIds = new Set(
+    await prisma.$transaction(async (transaction) => {
+      await acquireRegistrationLocks(transaction, invitation, input.eventIds);
+
+      const currentInvitation = await transaction.invitation.findUnique({
+        where: { id: invitation.id },
+      });
+      const checkedAt = new Date();
+      if (
+        !currentInvitation ||
+        currentInvitation.realtorId !== invitation.realtorId ||
+        currentInvitation.revokedAt ||
+        currentInvitation.expiresAt <= checkedAt
+      ) {
+        throw new AppError(
+          "INVITATION_UNAVAILABLE",
+          "This invitation is invalid or no longer available.",
+          404,
+        );
+      }
+
+      const existing = await transaction.registration.findMany({
         where: {
-          invitationId_calendarEventId: {
-            invitationId: invitation.id,
-            calendarEventId: eventId,
-          },
+          invitationId: invitation.id,
+          calendarEventId: { in: input.eventIds },
         },
       });
-      if (current?.status === "CONFIRMED") {
-        results.push(current);
-        continue;
+      const existingByEvent = new Map(
+        existing.map((registration) => [
+          registration.calendarEventId,
+          registration,
+        ]),
+      );
+
+      const reused = existing
+        .filter((registration) => registration.status === "CONFIRMED")
+        .map((registration) => registration.calendarEventId);
+      if (currentInvitation.maxSubmissions !== null) {
+        const activeCount = await transaction.registration.count({
+          where: { invitationId: invitation.id, status: "CONFIRMED" },
+        });
+        const additions = input.eventIds.filter(
+          (eventId) => existingByEvent.get(eventId)?.status !== "CONFIRMED",
+        ).length;
+        if (activeCount + additions > currentInvitation.maxSubmissions) {
+          throw new AppError(
+            "SUBMISSION_LIMIT",
+            "This invitation cannot select any more showings.",
+            409,
+          );
+        }
       }
-      if (current) {
-        results.push(
+
+      for (const eventId of input.eventIds) {
+        const current = existingByEvent.get(eventId);
+        if (current?.status === "CONFIRMED") continue;
+
+        const showing = showings.get(eventId);
+        if (!showing) {
+          throw new AppError(
+            "SHOWING_UNAVAILABLE",
+            "One of the selected showings is no longer available.",
+            409,
+          );
+        }
+        if (showing.capacity) {
+          const activeForEvent = await transaction.registration.count({
+            where: {
+              calendarEventId: eventId,
+              status: "CONFIRMED",
+              invitation: { realtorId: invitation.realtorId },
+            },
+          });
+          if (activeForEvent >= showing.capacity) {
+            throw new AppError(
+              "SHOWING_FULL",
+              "One of the selected showings has reached capacity.",
+              409,
+            );
+          }
+        }
+
+        if (current) {
           await transaction.registration.update({
             where: { id: current.id },
             data: {
@@ -104,12 +176,11 @@ export async function registerForShowings(
               calendarSyncStatus: "PENDING",
               calendarSyncError: null,
             },
-          }),
-        );
-        continue;
-      }
-      try {
-        results.push(
+          });
+          continue;
+        }
+
+        try {
           await transaction.registration.create({
             data: {
               invitationId: invitation.id,
@@ -119,28 +190,27 @@ export async function registerForShowings(
               phone: input.phone,
               notes: input.notes,
             },
-          }),
-        );
-      } catch (error: unknown) {
-        if (!isUniqueConstraintError(error)) throw error;
-        const raced = await transaction.registration.findUnique({
-          where: {
-            invitationId_calendarEventId: {
-              invitationId: invitation.id,
-              calendarEventId: eventId,
+          });
+        } catch (error: unknown) {
+          if (!isUniqueConstraintError(error)) throw error;
+          const raced = await transaction.registration.findUnique({
+            where: {
+              invitationId_calendarEventId: {
+                invitationId: invitation.id,
+                calendarEventId: eventId,
+              },
             },
-          },
-        });
-        if (!raced) throw error;
-        results.push(raced);
+          });
+          if (!raced) throw error;
+        }
       }
-    }
-    return results;
-  });
+      return reused;
+    }, transactionOptions),
+  );
 
   const syncService = await getCalendarSyncService(invitation.realtorId);
   for (const eventId of input.eventIds) {
-    const reused = existingConfirmed.has(eventId);
+    const reused = reusedEventIds.has(eventId);
     await audit({
       action: reused ? "REGISTRATION_REUSED" : "REGISTRATION_CREATED",
       invitationId: invitation.id,
@@ -174,32 +244,33 @@ export async function cancelRegistration(
   eventId: string,
   ip?: string,
 ): Promise<PublicRegistrationDto> {
-  const showingService = await getShowingService(invitation.realtorId);
-  await showingService.assertSelectable(eventId);
-  const registration = await prisma.registration.findUnique({
-    where: {
-      invitationId_calendarEventId: {
-        invitationId: invitation.id,
-        calendarEventId: eventId,
+  const registration = await prisma.$transaction(async (transaction) => {
+    await acquireRegistrationLocks(transaction, invitation, [eventId]);
+    const current = await transaction.registration.findUnique({
+      where: {
+        invitationId_calendarEventId: {
+          invitationId: invitation.id,
+          calendarEventId: eventId,
+        },
       },
-    },
-  });
-  if (!registration || registration.status === "CANCELLED") {
-    throw new AppError(
-      "REGISTRATION_NOT_FOUND",
-      "Registration was not found.",
-      404,
-    );
-  }
-  await prisma.registration.update({
-    where: { id: registration.id },
-    data: {
-      status: "CANCELLED",
-      cancelledAt: new Date(),
-      calendarSyncStatus: "PENDING",
-      calendarSyncError: null,
-    },
-  });
+    });
+    if (!current || current.status === "CANCELLED") {
+      throw new AppError(
+        "REGISTRATION_NOT_FOUND",
+        "Registration was not found.",
+        404,
+      );
+    }
+    return transaction.registration.update({
+      where: { id: current.id },
+      data: {
+        status: "CANCELLED",
+        cancelledAt: new Date(),
+        calendarSyncStatus: "PENDING",
+        calendarSyncError: null,
+      },
+    });
+  }, transactionOptions);
   await audit({
     action: "REGISTRATION_CANCELLED",
     invitationId: invitation.id,

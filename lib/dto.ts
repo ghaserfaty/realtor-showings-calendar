@@ -19,6 +19,13 @@ export type PublicShowingDto = {
   remainingCapacity?: number;
 };
 
+export type RealtorShowingDto = Omit<PublicShowingDto, "alreadyRegistered"> & {
+  availability: "open" | "closed";
+  visibleToLeads: boolean;
+  registrationCount: number;
+  capacity?: number;
+};
+
 export type PublicRegistrationDto = {
   id: string;
   eventId: string;

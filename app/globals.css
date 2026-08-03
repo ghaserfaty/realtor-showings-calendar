@@ -1146,6 +1146,21 @@ form input:read-only {
   min-width: 0;
 }
 
+.generated-link .message-label {
+  margin-top: 16px;
+}
+
+.generated-link textarea {
+  width: 100%;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.copy-message-button {
+  width: 100%;
+  margin-top: 10px;
+}
+
 .calendar-panel > p {
   color: var(--muted);
   font-size: 0.82rem;
@@ -1170,6 +1185,297 @@ form input:read-only {
 .invitation-history {
   margin-top: 24px;
   overflow: hidden;
+}
+
+.showing-preview {
+  margin-top: 24px;
+  padding: 28px 32px 32px;
+}
+
+.showing-preview > .panel-heading > span,
+.showing-preview-help {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.showing-preview-help {
+  margin: 8px 0 22px;
+}
+
+.showing-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.showing-preview-grid article {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: #fafaf6;
+}
+
+.showing-preview-grid time {
+  color: var(--forest);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.showing-preview-grid article > .status-label {
+  float: right;
+  margin-left: 8px;
+}
+
+.showing-preview-grid h3 {
+  margin: 8px 0 5px;
+  font-family:
+    Iowan Old Style,
+    Baskerville,
+    serif;
+  font-size: 1.3rem;
+  font-weight: 500;
+}
+
+.showing-preview-grid p,
+.showing-preview-grid small {
+  display: block;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.showing-preview-grid small {
+  margin-top: 10px;
+}
+
+.showing-listing-link {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--forest);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.showing-preview-grid footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 12px;
+  color: var(--forest);
+  border-top: 1px solid var(--line);
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.showing-preview-grid footer a {
+  color: inherit;
+}
+
+.support-shell {
+  width: min(100% - 48px, 1380px);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding-bottom: 72px;
+}
+
+.support-heading {
+  padding: 56px 0 34px;
+}
+
+.support-heading h1,
+.support-login-card h1 {
+  margin: 7px 0 10px;
+  font-family:
+    Iowan Old Style,
+    Baskerville,
+    "Times New Roman",
+    serif;
+  font-size: clamp(3.2rem, 7vw, 5.8rem);
+  font-weight: 500;
+  letter-spacing: -0.055em;
+  line-height: 0.94;
+}
+
+.support-heading > p:last-child,
+.support-login-card > p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.support-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.62fr) minmax(0, 1.38fr);
+  gap: 24px;
+  margin-top: 24px;
+}
+
+.tenant-list-panel,
+.tenant-detail-panel {
+  padding: 28px;
+}
+
+.tenant-list-panel > .panel-heading > span {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.tenant-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.tenant-list button {
+  width: 100%;
+  padding: 15px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: var(--ink);
+  background: #f4f5f1;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tenant-list button.selected {
+  border-color: #9eb8a7;
+  background: var(--sage);
+}
+
+.tenant-list strong,
+.tenant-list small,
+.tenant-list span {
+  display: block;
+}
+
+.tenant-list strong {
+  font-size: 0.82rem;
+}
+
+.tenant-list small,
+.tenant-list span {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tenant-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.tenant-summary h2 {
+  margin: 4px 0;
+  font-family:
+    Iowan Old Style,
+    Baskerville,
+    serif;
+  font-size: 2rem;
+  font-weight: 500;
+}
+
+.tenant-summary p:last-child {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.tenant-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin: 24px 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--line);
+}
+
+.tenant-metrics div {
+  padding: 14px;
+  background: #fafaf6;
+}
+
+.tenant-metrics dt {
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.tenant-metrics dd {
+  margin: 5px 0 0;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.support-invitation-list {
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.support-invitation-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.support-invitation-list strong,
+.support-invitation-list small {
+  display: block;
+}
+
+.support-invitation-list strong {
+  font-size: 0.8rem;
+}
+
+.support-invitation-list small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.support-login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.support-login-card {
+  width: min(100%, 520px);
+  padding: clamp(28px, 6vw, 52px);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.support-login-card h1 {
+  font-size: clamp(3rem, 11vw, 4.8rem);
+}
+
+.support-login-card form {
+  margin-top: 28px;
+}
+
+.support-login-card label {
+  display: grid;
+}
+
+.support-login-card .primary-button {
+  width: 100%;
+  margin-top: 12px;
 }
 
 .invitation-history > .panel-heading {
@@ -1347,8 +1653,13 @@ footer {
 
 @media (max-width: 940px) {
   .landing-grid,
-  .admin-grid {
+  .admin-grid,
+  .support-layout {
     grid-template-columns: 1fr;
+  }
+
+  .showing-preview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .landing-preview {
@@ -1386,7 +1697,8 @@ footer {
 
 @media (max-width: 620px) {
   .landing-shell,
-  .admin-shell {
+  .admin-shell,
+  .support-shell {
     width: min(100% - 28px, 1240px);
   }
 
@@ -1430,6 +1742,24 @@ footer {
 
   .generated-link > div {
     flex-direction: column;
+  }
+
+  .showing-preview {
+    padding: 24px 20px;
+  }
+
+  .showing-preview-grid,
+  .tenant-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .support-invitation-list article {
+    grid-template-columns: 1fr auto;
+  }
+
+  .support-invitation-list article > :last-child {
+    grid-column: 1 / -1;
+    justify-self: start;
   }
 
   .invitation-row {

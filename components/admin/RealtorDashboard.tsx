@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { buildInvitationMessage } from "@/lib/invitation-message";
 
 type InvitationSummary = {
@@ -90,6 +90,18 @@ function formatShowingDate(showing: VisibleShowing): string {
   return `${day} · ${startTime}–${endTime}`;
 }
 
+function showingDateKey(showing: VisibleShowing): string {
+  const parts = new Intl.DateTimeFormat("en", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: showing.timezone,
+  }).formatToParts(new Date(showing.startDateTime));
+  const value = (type: "year" | "month" | "day") =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
 export function RealtorDashboard({
   realtor,
   initialInvitations,
@@ -114,6 +126,8 @@ export function RealtorDashboard({
     initialCalendarStatus.configured,
   );
   const [showingActionId, setShowingActionId] = useState("");
+  const [showingDateFilter, setShowingDateFilter] = useState("");
+  const [showingPropertyFilter, setShowingPropertyFilter] = useState("");
 
   const activeInvitations = invitations.filter(
     (invitation) => invitation.status === "active",
@@ -121,6 +135,24 @@ export function RealtorDashboard({
   const registrationCount = invitations.reduce(
     (total, invitation) => total + invitation.registrationCount,
     0,
+  );
+  const showingProperties = useMemo(
+    () =>
+      [...new Set(showings.map((showing) => showing.propertyTitle))].sort(
+        (left, right) => left.localeCompare(right),
+      ),
+    [showings],
+  );
+  const filteredShowings = useMemo(
+    () =>
+      showings.filter(
+        (showing) =>
+          (!showingDateFilter ||
+            showingDateKey(showing) === showingDateFilter) &&
+          (!showingPropertyFilter ||
+            showing.propertyTitle === showingPropertyFilter),
+      ),
+    [showingDateFilter, showingPropertyFilter, showings],
   );
 
   useEffect(() => {
@@ -482,12 +514,12 @@ export function RealtorDashboard({
           <form onSubmit={createInvitation}>
             <div className="invite-form-grid">
               <label>
-                Lead email <span>Optional</span>
-                <input name="invitedEmail" type="email" autoComplete="email" />
-              </label>
-              <label>
                 Lead name <span>Optional</span>
                 <input name="invitedName" autoComplete="name" maxLength={120} />
+              </label>
+              <label>
+                Lead email <span>Optional</span>
+                <input name="invitedEmail" type="email" autoComplete="email" />
               </label>
               <label>
                 Phone <span>Optional</span>
@@ -617,13 +649,52 @@ export function RealtorDashboard({
           </div>
           <span>
             {showings.filter((showing) => showing.visibleToLeads).length}{" "}
-            visible to leads
+            visible · {filteredShowings.length} shown
           </span>
         </div>
         <p className="showing-preview-help">
           Opening or closing a showing updates the event in Google Calendar.
           Visibility and capacity use the same rules as every invitation link.
         </p>
+        <form
+          className="showing-filters"
+          aria-label="Filter showings"
+          onSubmit={(event) => event.preventDefault()}
+        >
+          <label>
+            Date
+            <input
+              type="date"
+              value={showingDateFilter}
+              onChange={(event) => setShowingDateFilter(event.target.value)}
+            />
+          </label>
+          <label>
+            Property
+            <select
+              value={showingPropertyFilter}
+              onChange={(event) => setShowingPropertyFilter(event.target.value)}
+            >
+              <option value="">All properties</option>
+              {showingProperties.map((property) => (
+                <option key={property} value={property}>
+                  {property}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="secondary-button compact-button"
+            type="button"
+            disabled={!showingDateFilter && !showingPropertyFilter}
+            onClick={() => {
+              setShowingDateFilter("");
+              setShowingPropertyFilter("");
+            }}
+          >
+            Clear filters
+          </button>
+        </form>
         {showingsLoading ? (
           <div className="empty-state">
             <p>Loading the selected calendar…</p>
@@ -635,9 +706,14 @@ export function RealtorDashboard({
               Add a future <code>[ABIERTA]</code> event to the active calendar.
             </p>
           </div>
+        ) : filteredShowings.length === 0 ? (
+          <div className="empty-state">
+            <h3>No showings match these filters</h3>
+            <p>Change the date or property to see other calendar events.</p>
+          </div>
         ) : (
           <div className="showing-preview-grid">
-            {showings.map((showing) => (
+            {filteredShowings.map((showing) => (
               <article key={showing.eventId}>
                 <time dateTime={showing.startDateTime}>
                   {formatShowingDate(showing)}

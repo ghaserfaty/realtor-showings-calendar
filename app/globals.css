@@ -1202,6 +1202,27 @@ form input:read-only {
   margin: 8px 0 22px;
 }
 
+.showing-filters {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.7fr) minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 14px;
+  margin-bottom: 22px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 254, 251, 0.72);
+}
+
+.showing-filters label {
+  display: grid;
+  margin: 0;
+}
+
+.showing-filters .compact-button {
+  min-height: 45px;
+}
+
 .showing-preview-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1662,6 +1683,15 @@ footer {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .showing-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .showing-filters .compact-button {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
   .landing-preview {
     max-width: 620px;
     transform: none;
@@ -1751,6 +1781,14 @@ footer {
   .showing-preview-grid,
   .tenant-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .showing-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .showing-filters .compact-button {
+    grid-column: auto;
   }
 
   .support-invitation-list article {
